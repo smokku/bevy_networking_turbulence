@@ -29,26 +29,18 @@ fn main() {
         .run();
 }
 
-fn startup(net: ResMut<NetworkResource>) {
+fn startup(mut net: ResMut<NetworkResource>) {
+    let ip_address = find_my_ip_address().expect("can't find ip address");
+    let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+
     let args = parse_args();
     if args.is_server {
-        start_server(net);
+        log::info!("Starting server");
+        net.listen(socket_address);
     } else {
-        start_client(net);
+        log::info!("Starting client");
+        net.connect(socket_address);
     }
-}
-
-fn start_server(mut net: ResMut<NetworkResource>) {
-    log::info!("Starting server");
-
-    let current_ip_address = find_my_ip_address().expect("can't find ip address");
-    let current_socket_address = SocketAddr::new(current_ip_address, SERVER_PORT);
-
-    net.listen(current_socket_address);
-}
-
-fn start_client(_net: ResMut<NetworkResource>) {
-    log::info!("Starting client")
 }
 
 struct Args {

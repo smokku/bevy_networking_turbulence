@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 bevy = { path = "../bevy", version = "0.2", default-features = false }
 turbulence = "0.1"
-naia-server-socket = { version = "0.3", features = ["use-webrtc"] }
+naia-server-socket = { version = "0.3", features = ["use-udp"] }
 naia-client-socket = { version = "0.3" }
 log = "0.4"
 async-compat = "0.1"

@@ -1,8 +1,12 @@
 use bevy_app::{App, ScheduleRunnerPlugin};
 use bevy_ecs::prelude::*;
-use std::time::Duration;
+
+use std::{net::SocketAddr, time::Duration};
 
 use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin};
+use naia_server_socket::find_my_ip_address;
+
+const SERVER_PORT: u16 = 14191;
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -31,7 +35,12 @@ fn startup(net: ResMut<NetworkResource>) {
 }
 
 fn start_server(mut net: ResMut<NetworkResource>) {
-    log::info!("Starting server")
+    log::info!("Starting server");
+
+    let current_ip_address = find_my_ip_address().expect("can't find ip address");
+    let current_socket_address = SocketAddr::new(current_ip_address, SERVER_PORT);
+
+    net.listen(current_socket_address);
 }
 
 fn start_client(mut net: ResMut<NetworkResource>) {

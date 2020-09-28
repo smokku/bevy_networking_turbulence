@@ -6,6 +6,11 @@ edition = "2018"
 
 [dependencies]
 bevy_app = { version = "0.2", default-features = false }
+bevy_ecs = { version = "0.2", default-features = false }
 turbulence = "0.1"
 naia-server-socket = { version = "0.3", features = ["use-webrtc"] }
 naia-client-socket = "0.3"
+log = "0.4"
+
+[dev-dependencies]
+simple_logger = "1"

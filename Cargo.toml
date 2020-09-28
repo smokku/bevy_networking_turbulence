@@ -5,17 +5,13 @@ authors = ["Tomasz Sterna <tomek@sterna.link>"]
 edition = "2018"
 
 [dependencies]
-bevy_app = { version = "0.2", default-features = false }
-bevy_core = { version = "0.2", default-features = false }
-bevy_ecs = { version = "0.2", default-features = false }
-bevy_tasks = { version = "0.2", default-features = false }
-bevy_type_registry = { version = "0.2", default-features = false }
+bevy = { path = "../bevy", version = "0.2", default-features = false }
 turbulence = "0.1"
 naia-server-socket = { version = "0.3", features = ["use-webrtc"] }
-naia-client-socket = "0.3"
+naia-client-socket = { version = "0.3" }
 log = "0.4"
-smol = "1.2"
 async-compat = "0.1"
+crossbeam-channel = "0.4.4"
 
 [dev-dependencies]
 simple_logger = "1"

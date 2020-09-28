@@ -1,5 +1,7 @@
-use bevy_app::{App, ScheduleRunnerPlugin};
-use bevy_ecs::prelude::*;
+use bevy::{
+    app::{App, ScheduleRunnerPlugin},
+    ecs::prelude::*,
+};
 
 use std::{net::SocketAddr, time::Duration};
 
@@ -9,15 +11,14 @@ use naia_server_socket::find_my_ip_address;
 const SERVER_PORT: u16 = 14191;
 
 fn main() {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
+    simple_logger::SimpleLogger::from_env()
         .init()
         .expect("A logger was already initialized");
 
     App::build()
         // minimal plugins necessary for timers + headless loop
-        .add_plugin(bevy_type_registry::TypeRegistryPlugin::default())
-        .add_plugin(bevy_core::CorePlugin)
+        .add_plugin(bevy::type_registry::TypeRegistryPlugin::default())
+        .add_plugin(bevy::core::CorePlugin)
         .add_plugin(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))
@@ -46,7 +47,7 @@ fn start_server(mut net: ResMut<NetworkResource>) {
     net.listen(current_socket_address);
 }
 
-fn start_client(mut net: ResMut<NetworkResource>) {
+fn start_client(_net: ResMut<NetworkResource>) {
     log::info!("Starting client")
 }
 

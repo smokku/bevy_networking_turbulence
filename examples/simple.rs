@@ -15,6 +15,9 @@ fn main() {
         .expect("A logger was already initialized");
 
     App::build()
+        // minimal plugins necessary for timers + headless loop
+        .add_plugin(bevy_type_registry::TypeRegistryPlugin::default())
+        .add_plugin(bevy_core::CorePlugin)
         .add_plugin(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))

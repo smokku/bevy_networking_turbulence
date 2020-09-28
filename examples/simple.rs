@@ -1,12 +1,15 @@
 use bevy::{
-    app::{App, ScheduleRunnerPlugin},
+    app::{App, EventReader, Events, ScheduleRunnerPlugin},
+    core::Time,
     ecs::prelude::*,
 };
 
+use futures_lite::future;
 use std::{net::SocketAddr, time::Duration};
 
 use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin};
-use naia_server_socket::find_my_ip_address;
+use naia_client_socket::Packet as ClientPacket;
+use naia_server_socket::{find_my_ip_address, Packet as ServerPacket};
 
 const SERVER_PORT: u16 = 14191;
 
@@ -25,21 +28,86 @@ fn main() {
         // The NetworkingPlugin
         .add_plugin(NetworkingPlugin)
         // Our networking
+        .add_resource(parse_args())
         .add_startup_system(startup.system())
+        .add_system(send_packets.system())
+        .init_resource::<PacketReader>()
+        .add_system(handle_packets.system())
         .run();
 }
 
-fn startup(mut net: ResMut<NetworkResource>) {
+fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     let ip_address = find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
 
-    let args = parse_args();
     if args.is_server {
         log::info!("Starting server");
         net.listen(socket_address);
     } else {
         log::info!("Starting client");
         net.connect(socket_address);
+    }
+}
+
+fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
+    if !args.is_server {
+        if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
+            log::info!("PING");
+            match net.clients[0]
+                .sender
+                .send(ClientPacket::new("PING".to_string().into_bytes()))
+            {
+                Ok(()) => {}
+                Err(error) => {
+                    log::info!("PING send error: {}", error);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct PacketReader {
+    server_events: EventReader<ServerPacket>,
+    client_events: EventReader<ClientPacket>,
+}
+
+fn handle_packets(
+    mut net: ResMut<NetworkResource>,
+    time: Res<Time>,
+    mut state: ResMut<PacketReader>,
+    server_events: Res<Events<ServerPacket>>,
+    client_events: Res<Events<ClientPacket>>,
+) {
+    for packet in state.server_events.iter(&server_events) {
+        log::info!(
+            "Server got packet: {}",
+            String::from_utf8_lossy(packet.payload())
+        );
+        let message = format!(
+            "PONG @ {} to [{}]",
+            time.seconds_since_startup,
+            packet.address()
+        );
+        let payload = message.clone().into_bytes();
+        match future::block_on(
+            net.servers[0]
+                .sender
+                .send(ServerPacket::new(packet.address(), payload)),
+        ) {
+            Ok(()) => {
+                log::info!("Sent PONG: {}", message);
+            }
+            Err(error) => {
+                log::info!("PONG send error: {}", error);
+            }
+        }
+    }
+    for packet in state.client_events.iter(&client_events) {
+        log::info!(
+            "Client got packet: {}",
+            String::from_utf8_lossy(packet.payload())
+        );
     }
 }
 

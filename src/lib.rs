@@ -1,20 +1,24 @@
 use bevy::{
     app::{AppBuilder, Events, Plugin},
     ecs::prelude::*,
-    tasks::{IoTaskPool, Task, TaskPool},
+    tasks::{IoTaskPool, TaskPool},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 use async_compat::Compat;
+#[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use futures_lite::future;
 use std::net::SocketAddr;
 
-use naia_client_socket::{
-    ClientSocket, ClientSocketTrait, MessageSender as ClientSender, Packet as ClientPacket,
-};
-use naia_server_socket::{
-    LinkConditionerConfig, MessageSender as ServerSender, Packet as ServerPacket, ServerSocket,
-};
+use naia_client_socket::{ClientSocket, LinkConditionerConfig};
+#[cfg(not(target_arch = "wasm32"))]
+use naia_server_socket::{Packet as ServerPacket, ServerSocket};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use naia_server_socket::find_my_ip_address;
+
+mod transport;
+pub use transport::Packet;
 
 pub struct NetworkingPlugin;
 
@@ -28,45 +32,37 @@ impl Plugin for NetworkingPlugin {
             .clone();
 
         app.add_resource(NetworkResource::new(task_pool))
-            .add_event::<ServerPacket>()
-            .add_event::<ClientPacket>()
+            .add_event::<transport::Packet>()
             .add_system(receive_packets.system());
     }
 }
 
+#[allow(dead_code)]
 pub struct NetworkResource {
     task_pool: TaskPool,
-    pub servers: Vec<NetworkServer>,
-    pub clients: Vec<NetworkClient>,
+    pub connections: Vec<Box<dyn transport::Connection>>,
 }
 
-#[allow(dead_code)]
-pub struct NetworkServer {
-    receiver_task: Task<()>,
-    packet_rx: Receiver<ServerPacket>,
-    pub sender: ServerSender,
-}
-
-#[allow(dead_code)]
-pub struct NetworkClient {
-    socket: Box<dyn ClientSocketTrait>,
-    pub sender: ClientSender,
-}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for NetworkResource {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
     fn new(task_pool: TaskPool) -> Self {
         NetworkResource {
             task_pool,
-            servers: Vec::new(),
-            clients: Vec::new(),
+            connections: Vec::new(),
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self, socket_address: SocketAddr) {
         let (packet_tx, packet_rx): (Sender<ServerPacket>, Receiver<ServerPacket>) = unbounded();
 
-        let mut server_socket = future::block_on(Compat::new(ServerSocket::listen(socket_address)))
-            .with_link_conditioner(&LinkConditionerConfig::good_condition());
+        let mut server_socket =
+            futures_lite::future::block_on(Compat::new(ServerSocket::listen(socket_address)))
+                .with_link_conditioner(&LinkConditionerConfig::good_condition());
         let sender = server_socket.get_sender();
 
         let receiver_task = self.task_pool.spawn(Compat::new(async move {
@@ -90,57 +86,43 @@ impl NetworkResource {
             }
         }));
 
-        self.servers.push(NetworkServer {
-            receiver_task,
-            packet_rx,
-            sender,
-        });
+        self.connections
+            .push(Box::new(transport::ServerConnection::new(
+                receiver_task,
+                packet_rx,
+                sender,
+            )));
     }
 
     pub fn connect(&mut self, socket_address: SocketAddr) {
         let mut client_socket = ClientSocket::connect(socket_address)
-            // .with_link_conditioner(&LinkConditionerConfig::good_condition())
-            ;
-        let mut message_sender = client_socket.get_sender();
-        log::info!("Connect send");
-        message_sender
-            .send(ClientPacket::new("ping".to_string().into_bytes()))
-            .unwrap();
+            .with_link_conditioner(&LinkConditionerConfig::good_condition());
         let sender = client_socket.get_sender();
 
-        self.clients.push(NetworkClient {
-            socket: client_socket,
-            sender,
-        })
+        self.connections
+            .push(Box::new(transport::ClientConnection::new(
+                client_socket,
+                sender,
+            )));
     }
 }
 
-fn receive_packets(
+pub fn receive_packets(
     mut net: ResMut<NetworkResource>,
-    mut server_packet_events: ResMut<Events<ServerPacket>>,
-    mut client_packet_events: ResMut<Events<ClientPacket>>,
+    mut packet_events: ResMut<Events<transport::Packet>>,
 ) {
-    for server in net.servers.iter() {
-        while let Ok(packet) = server.packet_rx.try_recv() {
-            server_packet_events.send(packet);
-        }
-    }
-    for client in net.clients.iter_mut() {
-        match client.socket.receive() {
-            Ok(event) => {
-                match event {
-                    Some(packet) => {
-                        let message = String::from_utf8_lossy(packet.payload());
-                        log::info!("Client recv: {}", message);
-                        client_packet_events.send(packet);
-                    }
-                    None => {
-                        //log::info!("Client non-event");
-                    }
+    for connection in net.connections.iter_mut() {
+        while let Some(result) = connection.receive() {
+            match result {
+                Ok(packet) => {
+                    let message = String::from_utf8_lossy(packet.payload());
+                    log::info!("Received: {}", message);
+                    packet_events.send(packet);
                 }
-            }
-            Err(err) => {
-                log::info!("Client Error: {}", err);
+                Err(error) => {
+                    log::info!("Receive Error: {}", error);
+                    // FIXME:error_events.send(error);
+                }
             }
         }
     }

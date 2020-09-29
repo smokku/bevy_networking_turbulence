@@ -3,20 +3,24 @@ use bevy::{
     core::Time,
     ecs::prelude::*,
 };
+use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin, Packet};
 
-use futures_lite::future;
 use std::{net::SocketAddr, time::Duration};
-
-use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin};
-use naia_client_socket::Packet as ClientPacket;
-use naia_server_socket::{find_my_ip_address, Packet as ServerPacket};
 
 const SERVER_PORT: u16 = 14191;
 
 fn main() {
-    simple_logger::SimpleLogger::from_env()
-        .init()
-        .expect("A logger was already initialized");
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
+        }
+        else {
+            simple_logger::SimpleLogger::from_env()
+            .init()
+            .expect("A logger was already initialized");
+        }
+    }
 
     App::build()
         // minimal plugins necessary for timers + headless loop
@@ -37,13 +41,24 @@ fn main() {
 }
 
 fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
-    let ip_address = find_my_ip_address().expect("can't find ip address");
-    let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            // FIXME: set this address to your local machine
+            let mut socket_address: SocketAddr = "192.168.1.20:0".parse().unwrap();
+            socket_address.set_port(SERVER_PORT);
+        } else {
+            let ip_address =
+                bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
+            let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+        }
+    }
 
+    #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
         log::info!("Starting server");
         net.listen(socket_address);
-    } else {
+    }
+    if !args.is_server {
         log::info!("Starting client");
         net.connect(socket_address);
     }
@@ -53,10 +68,7 @@ fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Arg
     if !args.is_server {
         if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
             log::info!("PING");
-            match net.clients[0]
-                .sender
-                .send(ClientPacket::new("PING".to_string().into_bytes()))
-            {
+            match net.connections[0].send("PING".to_string().as_bytes()) {
                 Ok(()) => {}
                 Err(error) => {
                     log::info!("PING send error: {}", error);
@@ -68,46 +80,28 @@ fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Arg
 
 #[derive(Default)]
 struct PacketReader {
-    server_events: EventReader<ServerPacket>,
-    client_events: EventReader<ClientPacket>,
+    packet_events: EventReader<Packet>,
 }
 
 fn handle_packets(
     mut net: ResMut<NetworkResource>,
     time: Res<Time>,
     mut state: ResMut<PacketReader>,
-    server_events: Res<Events<ServerPacket>>,
-    client_events: Res<Events<ClientPacket>>,
+    packet_events: Res<Events<Packet>>,
 ) {
-    for packet in state.server_events.iter(&server_events) {
-        log::info!(
-            "Server got packet: {}",
-            String::from_utf8_lossy(packet.payload())
-        );
-        let message = format!(
-            "PONG @ {} to [{}]",
-            time.seconds_since_startup,
-            packet.address()
-        );
-        let payload = message.clone().into_bytes();
-        match future::block_on(
-            net.servers[0]
-                .sender
-                .send(ServerPacket::new(packet.address(), payload)),
-        ) {
-            Ok(()) => {
-                log::info!("Sent PONG: {}", message);
-            }
-            Err(error) => {
-                log::info!("PONG send error: {}", error);
+    for packet in state.packet_events.iter(&packet_events) {
+        log::info!("Got packet: {}", String::from_utf8_lossy(packet.payload()));
+        if let Some(address) = packet.address() {
+            let message = format!("PONG @ {} to [{}]", time.seconds_since_startup, address);
+            match net.connections[0].send_to(message.as_bytes(), address) {
+                Ok(()) => {
+                    log::info!("Sent PONG: {}", message);
+                }
+                Err(error) => {
+                    log::info!("PONG send error: {}", error);
+                }
             }
         }
-    }
-    for packet in state.client_events.iter(&client_events) {
-        log::info!(
-            "Client got packet: {}",
-            String::from_utf8_lossy(packet.payload())
-        );
     }
 }
 
@@ -116,19 +110,25 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let args: Vec<String> = std::env::args().collect();
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            let is_server = false;
+        } else {
+            let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 2 {
-        panic!("Need to select to run as either a server (--server) or a client (--client).");
+            if args.len() < 2 {
+                panic!("Need to select to run as either a server (--server) or a client (--client).");
+            }
+
+            let connection_type = &args[1];
+
+            let is_server = match connection_type.as_str() {
+                "--server" | "-s" => true,
+                "--client" | "-c" => false,
+                _ => panic!("Need to select to run as either a server (--server) or a client (--client)."),
+            };
+        }
     }
-
-    let connection_type = &args[1];
-
-    let is_server = match connection_type.as_str() {
-        "--server" | "-s" => true,
-        "--client" | "-c" => false,
-        _ => panic!("Need to select to run as either a server (--server) or a client (--client)."),
-    };
 
     Args { is_server }
 }

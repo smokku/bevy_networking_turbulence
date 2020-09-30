@@ -17,6 +17,7 @@ use naia_server_socket::{Packet as ServerPacket, ServerSocket};
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_server_socket::find_my_ip_address;
 
+mod channels;
 mod transport;
 pub use transport::Packet;
 

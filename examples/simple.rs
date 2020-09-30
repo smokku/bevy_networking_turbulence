@@ -7,6 +7,9 @@ use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin, Packet};
 
 use std::{net::SocketAddr, time::Duration};
 
+mod utils;
+use utils::*;
+
 const SERVER_PORT: u16 = 14191;
 
 fn main() {
@@ -103,32 +106,4 @@ fn handle_packets(
             }
         }
     }
-}
-
-struct Args {
-    pub is_server: bool,
-}
-
-fn parse_args() -> Args {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            let is_server = false;
-        } else {
-            let args: Vec<String> = std::env::args().collect();
-
-            if args.len() < 2 {
-                panic!("Need to select to run as either a server (--server) or a client (--client).");
-            }
-
-            let connection_type = &args[1];
-
-            let is_server = match connection_type.as_str() {
-                "--server" | "-s" => true,
-                "--client" | "-c" => false,
-                _ => panic!("Need to select to run as either a server (--server) or a client (--client)."),
-            };
-        }
-    }
-
-    Args { is_server }
 }

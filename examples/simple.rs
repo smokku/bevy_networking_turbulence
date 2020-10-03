@@ -7,6 +7,9 @@ use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin, Packet};
 
 use std::{net::SocketAddr, time::Duration};
 
+mod utils;
+use utils::*;
+
 const SERVER_PORT: u16 = 14191;
 
 fn main() {
@@ -64,11 +67,13 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
 }
 
-fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
+fn send_packets(net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
     if !args.is_server {
         if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
             log::info!("PING");
-            match net.connections[0].send("PING".to_string().as_bytes()) {
+            match net.connections.lock().unwrap()[0]
+                .send(Packet::copy_from_slice("PING".to_string().as_bytes()))
+            {
                 Ok(()) => {}
                 Err(error) => {
                     log::info!("PING send error: {}", error);
@@ -84,16 +89,19 @@ struct PacketReader {
 }
 
 fn handle_packets(
-    mut net: ResMut<NetworkResource>,
+    net: ResMut<NetworkResource>,
     time: Res<Time>,
     mut state: ResMut<PacketReader>,
     packet_events: Res<Events<Packet>>,
 ) {
     for packet in state.packet_events.iter(&packet_events) {
-        log::info!("Got packet: {}", String::from_utf8_lossy(packet.payload()));
-        if let Some(address) = packet.address() {
-            let message = format!("PONG @ {} to [{}]", time.seconds_since_startup, address);
-            match net.connections[0].send_to(message.as_bytes(), address) {
+        let message = String::from_utf8_lossy(packet);
+        log::info!("Got packet: {}", message);
+        if message == "PING" {
+            let message = format!("PONG @ {}", time.seconds_since_startup);
+            match net.connections.lock().unwrap()[0]
+                .send(Packet::copy_from_slice(message.as_bytes()))
+            {
                 Ok(()) => {
                     log::info!("Sent PONG: {}", message);
                 }
@@ -103,32 +111,4 @@ fn handle_packets(
             }
         }
     }
-}
-
-struct Args {
-    pub is_server: bool,
-}
-
-fn parse_args() -> Args {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            let is_server = false;
-        } else {
-            let args: Vec<String> = std::env::args().collect();
-
-            if args.len() < 2 {
-                panic!("Need to select to run as either a server (--server) or a client (--client).");
-            }
-
-            let connection_type = &args[1];
-
-            let is_server = match connection_type.as_str() {
-                "--server" | "-s" => true,
-                "--client" | "-c" => false,
-                _ => panic!("Need to select to run as either a server (--server) or a client (--client)."),
-            };
-        }
-    }
-
-    Args { is_server }
 }

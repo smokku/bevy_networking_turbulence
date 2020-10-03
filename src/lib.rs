@@ -8,17 +8,33 @@ use bevy::{
 use async_compat::Compat;
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use std::net::SocketAddr;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    net::SocketAddr,
+    sync::{Arc, Mutex, RwLock},
+};
 
 use naia_client_socket::{ClientSocket, LinkConditionerConfig};
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{Packet as ServerPacket, ServerSocket};
+use naia_server_socket::{MessageSender as ServerSender, Packet as ServerPacket, ServerSocket};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_server_socket::find_my_ip_address;
 
+pub use turbulence::message_channels::{MessageChannelMode, MessageChannelSettings};
+use turbulence::{
+    buffer::BufferPacketPool,
+    message_channels::{
+        ChannelAlreadyRegistered, ChannelMessage, MessageChannels, MessageChannelsBuilder,
+    },
+    packet::PacketPool,
+    packet_multiplexer::{MuxPacket, MuxPacketPool, PacketMultiplexer},
+    reliable_channel,
+};
+
 mod transport;
-pub use transport::Packet;
+pub use transport::{Connection, Packet};
 
 pub struct NetworkingPlugin;
 
@@ -32,15 +48,26 @@ impl Plugin for NetworkingPlugin {
             .clone();
 
         app.add_resource(NetworkResource::new(task_pool))
-            .add_event::<transport::Packet>()
+            .add_event::<Packet>()
             .add_system(receive_packets.system());
     }
 }
 
-#[allow(dead_code)]
 pub struct NetworkResource {
     task_pool: TaskPool,
-    pub connections: Vec<Box<dyn transport::Connection>>,
+
+    pub connections: Arc<Mutex<Vec<Box<dyn Connection>>>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    listeners: Vec<ServerListener>,
+    #[cfg(not(target_arch = "wasm32"))]
+    server_channels: Arc<RwLock<HashMap<SocketAddr, Sender<Packet>>>>,
+}
+
+struct ServerListener {
+    receiver_task: bevy::tasks::Task<()>,
+    sender: ServerSender,
+    socket_address: SocketAddr,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -52,7 +79,9 @@ impl NetworkResource {
     fn new(task_pool: TaskPool) -> Self {
         NetworkResource {
             task_pool,
-            connections: Vec::new(),
+            connections: Arc::new(Mutex::new(Vec::new())),
+            listeners: Vec::new(),
+            server_channels: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -64,6 +93,8 @@ impl NetworkResource {
             futures_lite::future::block_on(Compat::new(ServerSocket::listen(socket_address)))
                 .with_link_conditioner(&LinkConditionerConfig::good_condition());
         let sender = server_socket.get_sender();
+        let server_channels = self.server_channels.clone();
+        let connections = self.connections.clone();
 
         let receiver_task = self.task_pool.spawn(Compat::new(async move {
             loop {
@@ -71,27 +102,53 @@ impl NetworkResource {
                     Ok(packet) => {
                         let address = packet.address();
                         let message = String::from_utf8_lossy(packet.payload());
-                        log::info!("Server recv <- {}: {}", address, message);
-                        match packet_tx.send(packet) {
+                        log::debug!("Server recv <- {}: {}", address, message);
+
+                        match server_channels.write() {
+                            Ok(mut server_channels) => {
+                                if !server_channels.contains_key(&address) {
+                                    let (packet_tx, packet_rx): (Sender<Packet>, Receiver<Packet>) =
+                                        unbounded();
+                                    connections.lock().unwrap().push(Box::new(
+                                        transport::ServerConnection::new(
+                                            packet_rx,
+                                            server_socket.get_sender(),
+                                            address,
+                                        ),
+                                    ));
+                                    server_channels.insert(address, packet_tx);
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("Error locking server channels: {}", err);
+                            }
+                        }
+
+                        match server_channels
+                            .read()
+                            .unwrap()
+                            .get(&address)
+                            .unwrap()
+                            .send(Packet::copy_from_slice(packet.payload()))
+                        {
                             Ok(()) => {}
                             Err(error) => {
-                                log::info!("Server Send Error: {}", error);
+                                log::error!("Server Send Error: {}", error);
                             }
                         }
                     }
                     Err(error) => {
-                        log::info!("Server Receive Error: {}", error);
+                        log::error!("Server Receive Error: {}", error);
                     }
                 }
             }
         }));
 
-        self.connections
-            .push(Box::new(transport::ServerConnection::new(
+        self.listeners.push(ServerListener {
                 receiver_task,
-                packet_rx,
                 sender,
-            )));
+            socket_address,
+        });
     }
 
     pub fn connect(&mut self, socket_address: SocketAddr) {
@@ -100,6 +157,8 @@ impl NetworkResource {
         let sender = client_socket.get_sender();
 
         self.connections
+            .lock()
+            .unwrap()
             .push(Box::new(transport::ClientConnection::new(
                 client_socket,
                 sender,
@@ -111,16 +170,16 @@ pub fn receive_packets(
     mut net: ResMut<NetworkResource>,
     mut packet_events: ResMut<Events<transport::Packet>>,
 ) {
-    for connection in net.connections.iter_mut() {
+    for connection in net.connections.lock().unwrap().iter_mut() {
         while let Some(result) = connection.receive() {
             match result {
                 Ok(packet) => {
-                    let message = String::from_utf8_lossy(packet.payload());
-                    log::info!("Received: {}", message);
+                    let message = String::from_utf8_lossy(&packet);
+                    log::debug!("Received RAW: {}", message);
                     packet_events.send(packet);
                 }
                 Err(error) => {
-                    log::info!("Receive Error: {}", error);
+                    log::error!("Receive Error: {}", error);
                     // FIXME:error_events.send(error);
                 }
             }

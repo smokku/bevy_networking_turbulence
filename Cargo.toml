@@ -10,8 +10,8 @@ use-udp = ["naia-server-socket/use-udp"]
 use-webrtc = ["naia-server-socket/use-webrtc"]
 
 [dependencies]
-bevy = { path = "../bevy", version = "0.2", default-features = false }
-turbulence = "0.1"
+bevy = { path = "../bevy", version = "0.2" }
+turbulence = { path = "../turbulence", version = "0.1.2-alpha.0" }
 naia-client-socket = { path = "../naia-socket/client", version = "0.3" }
 bytes = "0.5"
 log = "0.4"

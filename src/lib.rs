@@ -10,9 +10,10 @@ use async_compat::Compat;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::{
     collections::HashMap,
+    error::Error,
     fmt::Debug,
     net::SocketAddr,
-    sync::{Arc, Mutex, RwLock},
+    sync::{atomic, Arc, Mutex, RwLock},
 };
 
 use naia_client_socket::{ClientSocket, LinkConditionerConfig};
@@ -36,6 +37,8 @@ use turbulence::{
 mod transport;
 pub use transport::{Connection, Packet};
 
+pub type ConnectionHandle = u32;
+
 pub struct NetworkingPlugin;
 
 impl Plugin for NetworkingPlugin {
@@ -48,7 +51,7 @@ impl Plugin for NetworkingPlugin {
             .clone();
 
         app.add_resource(NetworkResource::new(task_pool))
-            .add_event::<Packet>()
+            .add_event::<NetworkEvent>()
             .add_system(receive_packets.system());
     }
 }
@@ -56,7 +59,9 @@ impl Plugin for NetworkingPlugin {
 pub struct NetworkResource {
     task_pool: TaskPool,
 
-    pub connections: Arc<Mutex<Vec<Box<dyn Connection>>>>,
+    pending_connections: Arc<Mutex<Vec<Box<dyn Connection>>>>,
+    connection_sequence: atomic::AtomicU32,
+    pub connections: HashMap<ConnectionHandle, Box<dyn Connection>>,
 
     #[cfg(not(target_arch = "wasm32"))]
     listeners: Vec<ServerListener>,
@@ -70,6 +75,14 @@ struct ServerListener {
     socket_address: SocketAddr,
 }
 
+#[derive(Debug)]
+pub enum NetworkEvent {
+    Connected(ConnectionHandle),
+    Disconnected(ConnectionHandle),
+    Packet(ConnectionHandle, Packet),
+    // SendError(NetworkError),
+}
+
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for NetworkResource {}
 #[cfg(target_arch = "wasm32")]
@@ -79,7 +92,9 @@ impl NetworkResource {
     fn new(task_pool: TaskPool) -> Self {
         NetworkResource {
             task_pool,
-            connections: Arc::new(Mutex::new(Vec::new())),
+            connections: HashMap::new(),
+            connection_sequence: atomic::AtomicU32::new(0),
+            pending_connections: Arc::new(Mutex::new(Vec::new())),
             listeners: Vec::new(),
             server_channels: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -94,7 +109,7 @@ impl NetworkResource {
                 .with_link_conditioner(&LinkConditionerConfig::good_condition());
         let sender = server_socket.get_sender();
         let server_channels = self.server_channels.clone();
-        let connections = self.connections.clone();
+        let pending_connections = self.pending_connections.clone();
 
         let receiver_task = self.task_pool.spawn(Compat::new(async move {
             loop {
@@ -109,7 +124,7 @@ impl NetworkResource {
                                 if !server_channels.contains_key(&address) {
                                     let (packet_tx, packet_rx): (Sender<Packet>, Receiver<Packet>) =
                                         unbounded();
-                                    connections.lock().unwrap().push(Box::new(
+                                    pending_connections.lock().unwrap().push(Box::new(
                                         transport::ServerConnection::new(
                                             packet_rx,
                                             server_socket.get_sender(),
@@ -156,7 +171,7 @@ impl NetworkResource {
             .with_link_conditioner(&LinkConditionerConfig::good_condition());
         let sender = client_socket.get_sender();
 
-        self.connections
+        self.pending_connections
             .lock()
             .unwrap()
             .push(Box::new(transport::ClientConnection::new(
@@ -164,19 +179,43 @@ impl NetworkResource {
                 sender,
             )));
     }
+
+    pub fn send(
+        &mut self,
+        handle: ConnectionHandle,
+        payload: Packet,
+    ) -> Result<(), Box<dyn Error + Send>> {
+        match self.connections.get_mut(&handle) {
+            Some(connection) => connection.send(payload),
+            None => Err(Box::new(std::io::Error::new(
+                // FIXME: move to enum Error
+                std::io::ErrorKind::NotFound,
+                "No such connection",
+            ))),
+        }
 }
 
 pub fn receive_packets(
     mut net: ResMut<NetworkResource>,
-    mut packet_events: ResMut<Events<transport::Packet>>,
+    mut network_events: ResMut<Events<NetworkEvent>>,
 ) {
-    for connection in net.connections.lock().unwrap().iter_mut() {
+    let connections: Vec<Box<dyn Connection>> =
+        net.pending_connections.lock().unwrap().drain(..).collect();
+    for connection in connections {
+        let handle: ConnectionHandle = net
+            .connection_sequence
+            .fetch_add(1, atomic::Ordering::Relaxed);
+        net.connections.insert(handle, connection);
+        network_events.send(NetworkEvent::Connected(handle));
+    }
+
+    for (handle, connection) in net.connections.iter_mut() {
         while let Some(result) = connection.receive() {
             match result {
                 Ok(packet) => {
                     let message = String::from_utf8_lossy(&packet);
-                    log::debug!("Received RAW: {}", message);
-                    packet_events.send(packet);
+                    log::debug!("Received on [{}] RAW: {}", handle, message);
+                    network_events.send(NetworkEvent::Packet(*handle, packet));
                 }
                 Err(error) => {
                     log::error!("Receive Error: {}", error);

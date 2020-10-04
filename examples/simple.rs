@@ -3,7 +3,7 @@ use bevy::{
     core::Time,
     ecs::prelude::*,
 };
-use bevy_networking_turbulence::{NetworkResource, NetworkingPlugin, Packet};
+use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
 
 use std::{net::SocketAddr, time::Duration};
 
@@ -38,7 +38,7 @@ fn main() {
         .add_resource(parse_args())
         .add_startup_system(startup.system())
         .add_system(send_packets.system())
-        .init_resource::<PacketReader>()
+        .init_resource::<NetworkReader>()
         .add_system(handle_packets.system())
         .run();
 }
@@ -67,16 +67,16 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
 }
 
-fn send_packets(net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
+fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
     if !args.is_server {
         if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
             log::info!("PING");
-            match net.connections.lock().unwrap()[0]
-                .send(Packet::copy_from_slice("PING".to_string().as_bytes()))
-            {
-                Ok(()) => {}
-                Err(error) => {
-                    log::info!("PING send error: {}", error);
+            for (handle, connection) in net.connections.iter_mut() {
+                match connection.send(Packet::copy_from_slice("PING".to_string().as_bytes())) {
+                    Ok(()) => {}
+                    Err(error) => {
+                        log::info!("PING send error on [{}]: {}", handle, error);
+                    }
                 }
             }
         }
@@ -84,31 +84,34 @@ fn send_packets(net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) 
 }
 
 #[derive(Default)]
-struct PacketReader {
-    packet_events: EventReader<Packet>,
+struct NetworkReader {
+    network_events: EventReader<NetworkEvent>,
 }
 
 fn handle_packets(
-    net: ResMut<NetworkResource>,
+    mut net: ResMut<NetworkResource>,
     time: Res<Time>,
-    mut state: ResMut<PacketReader>,
-    packet_events: Res<Events<Packet>>,
+    mut state: ResMut<NetworkReader>,
+    network_events: Res<Events<NetworkEvent>>,
 ) {
-    for packet in state.packet_events.iter(&packet_events) {
-        let message = String::from_utf8_lossy(packet);
-        log::info!("Got packet: {}", message);
-        if message == "PING" {
-            let message = format!("PONG @ {}", time.seconds_since_startup);
-            match net.connections.lock().unwrap()[0]
-                .send(Packet::copy_from_slice(message.as_bytes()))
-            {
-                Ok(()) => {
-                    log::info!("Sent PONG: {}", message);
-                }
-                Err(error) => {
-                    log::info!("PONG send error: {}", error);
+    for event in state.network_events.iter(&network_events) {
+        match event {
+            NetworkEvent::Packet(handle, packet) => {
+                let message = String::from_utf8_lossy(packet);
+                log::info!("Got packet on [{}]: {}", handle, message);
+                if message == "PING" {
+                    let message = format!("PONG @ {}", time.seconds_since_startup);
+                    match net.send(*handle, Packet::copy_from_slice(message.as_bytes())) {
+                        Ok(()) => {
+                            log::info!("Sent PONG: {}", message);
+                        }
+                        Err(error) => {
+                            log::info!("PONG send error: {}", error);
+                        }
+                    }
                 }
             }
+            _ => {}
         }
     }
 }

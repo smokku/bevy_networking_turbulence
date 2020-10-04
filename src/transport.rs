@@ -1,3 +1,4 @@
+use bevy::tasks::{Task, TaskPool};
 use bytes::Bytes;
 use std::{error::Error, fmt::Debug, net::SocketAddr};
 
@@ -7,35 +8,78 @@ use naia_client_socket::{
 #[cfg(not(target_arch = "wasm32"))]
 use naia_server_socket::{MessageSender as ServerSender, Packet as ServerPacket};
 
-pub type Packet = Bytes;
+use turbulence::{
+    buffer::BufferPacketPool,
+    message_channels::{
+        ChannelAlreadyRegistered, ChannelMessage, MessageChannelMode, MessageChannelSettings,
+        MessageChannels, MessageChannelsBuilder,
+    },
+    packet::PacketPool,
+    packet_multiplexer::{
+        IncomingMultiplexedPackets, MuxPacket, MuxPacketPool, OutgoingMultiplexedPackets,
+        PacketMultiplexer,
+    },
+    reliable_channel,
+};
 
-pub trait Connection: Debug + Send + Sync {
+#[cfg(not(target_arch = "wasm32"))]
+use futures_lite::{future::block_on, StreamExt};
+
+use super::channels::{SimpleBufferPool, TaskPoolRuntime};
+
+pub type Packet = Bytes;
+type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as PacketPool>::Packet>;
+pub type ConnectionChannelsBuilder =
+    MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
+
+pub trait Connection: Send + Sync {
     fn remote_address(&self) -> Option<SocketAddr>;
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>>;
 
     fn receive(&mut self) -> Option<Result<Packet, Box<dyn Error + Send>>>;
+
+    fn build_channels(
+        &mut self,
+        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        runtime: TaskPoolRuntime,
+        pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
+    );
+
+    fn channels(&mut self) -> Option<&mut MessageChannels>;
+
+    fn channels_rx(&mut self) -> Option<&mut IncomingMultiplexedPackets<MultiplexedPacket>>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug)]
 pub struct ServerConnection {
+    task_pool: TaskPool,
+
     packet_rx: crossbeam_channel::Receiver<Packet>,
-    sender: ServerSender,
+    sender: Option<ServerSender>,
     client_address: SocketAddr,
+
+    channels: Option<MessageChannels>,
+    channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    channels_task: Option<Task<()>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ServerConnection {
     pub fn new(
+        task_pool: TaskPool,
         packet_rx: crossbeam_channel::Receiver<Packet>,
         sender: ServerSender,
         client_address: SocketAddr,
     ) -> Self {
         ServerConnection {
+            task_pool,
             packet_rx,
-            sender,
+            sender: Some(sender),
             client_address,
+            channels: None,
+            channels_rx: None,
+            channels_task: None,
         }
     }
 }
@@ -47,8 +91,10 @@ impl Connection for ServerConnection {
     }
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>> {
-        futures_lite::future::block_on(
+        block_on(
             self.sender
+                .as_mut()
+                .unwrap()
                 .send(ServerPacket::new(self.client_address, payload.to_vec())),
         )
     }
@@ -62,17 +108,75 @@ impl Connection for ServerConnection {
             },
         }
     }
+
+    fn build_channels(
+        &mut self,
+        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        runtime: TaskPoolRuntime,
+        pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
+    ) {
+        let mut builder = MessageChannelsBuilder::new(runtime, pool);
+        builder_fn(&mut builder);
+
+        let mut multiplexer = PacketMultiplexer::new();
+        self.channels = Some(builder.build(&mut multiplexer));
+        let (mut channels_rx, mut channels_tx) = multiplexer.start();
+        self.channels_rx = Some(channels_rx);
+
+        let mut sender = self.sender.take().unwrap();
+        let client_address = self.client_address;
+        self.channels_task = Some(self.task_pool.spawn(async move {
+            println!("server spawned");
+            loop {
+                println!("server looping");
+                let packet = channels_tx.next().await.unwrap();
+                println!(
+                    "server packet to network! {} [{}]",
+                    packet.len(),
+                    client_address
+                );
+                sender
+                    .send(ServerPacket::new(client_address, (*packet).into()))
+                    .await
+                    .unwrap();
+            }
+        }));
+    }
+
+    fn channels(&mut self) -> Option<&mut MessageChannels> {
+        self.channels.as_mut()
+    }
+
+    fn channels_rx(&mut self) -> Option<&mut IncomingMultiplexedPackets<MultiplexedPacket>> {
+        self.channels_rx.as_mut()
+    }
 }
 
-#[derive(Debug)]
 pub struct ClientConnection {
+    task_pool: TaskPool,
+
     socket: Box<dyn ClientSocketTrait>,
-    sender: ClientSender,
+    sender: Option<ClientSender>,
+
+    channels: Option<MessageChannels>,
+    channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    channels_task: Option<Task<()>>,
 }
 
 impl ClientConnection {
-    pub fn new(socket: Box<dyn ClientSocketTrait>, sender: ClientSender) -> Self {
-        ClientConnection { socket, sender }
+    pub fn new(
+        task_pool: TaskPool,
+        socket: Box<dyn ClientSocketTrait>,
+        sender: ClientSender,
+    ) -> Self {
+        ClientConnection {
+            task_pool,
+            socket,
+            sender: Some(sender),
+            channels: None,
+            channels_rx: None,
+            channels_task: None,
+        }
     }
 }
 
@@ -82,7 +186,10 @@ impl Connection for ClientConnection {
     }
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>> {
-        self.sender.send(ClientPacket::new(payload.to_vec()))
+        self.sender
+            .as_mut()
+            .unwrap()
+            .send(ClientPacket::new(payload.to_vec()))
     }
 
     fn receive(&mut self) -> Option<Result<Packet, Box<dyn Error + Send>>> {
@@ -93,6 +200,47 @@ impl Connection for ClientConnection {
             },
             Err(err) => Some(Err(Box::new(err))),
         }
+    }
+
+    fn build_channels(
+        &mut self,
+        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        runtime: TaskPoolRuntime,
+        pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
+    ) {
+        let mut builder = MessageChannelsBuilder::new(runtime, pool);
+        builder_fn(&mut builder);
+
+        let mut multiplexer = PacketMultiplexer::new();
+        self.channels = Some(builder.build(&mut multiplexer));
+        let (mut channels_rx, mut channels_tx) = multiplexer.start();
+        self.channels_rx = Some(channels_rx);
+
+        let mut sender = self.sender.take().unwrap();
+        self.channels_task = Some(self.task_pool.spawn(async move {
+            println!("client spawned");
+            loop {
+                println!("client looping");
+                match channels_tx.next().await {
+                    Some(packet) => {
+                        println!("client packet to network! {}", packet.len());
+                        sender.send(ClientPacket::new((*packet).into())).unwrap();
+                    }
+                    None => {
+                        log::error!("Channel stream Disconnected");
+                        return; // exit task
+                    }
+                }
+            }
+        }));
+    }
+
+    fn channels(&mut self) -> Option<&mut MessageChannels> {
+        self.channels.as_mut()
+    }
+
+    fn channels_rx(&mut self) -> Option<&mut IncomingMultiplexedPackets<MultiplexedPacket>> {
+        self.channels_rx.as_mut()
     }
 }
 

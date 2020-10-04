@@ -71,14 +71,7 @@ fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Arg
     if !args.is_server {
         if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
             log::info!("PING");
-            for (handle, connection) in net.connections.iter_mut() {
-                match connection.send(Packet::copy_from_slice("PING".to_string().as_bytes())) {
-                    Ok(()) => {}
-                    Err(error) => {
-                        log::info!("PING send error on [{}]: {}", handle, error);
-                    }
-                }
-            }
+            net.broadcast(Packet::from("PING"));
         }
     }
 }
@@ -101,7 +94,7 @@ fn handle_packets(
                 log::info!("Got packet on [{}]: {}", handle, message);
                 if message == "PING" {
                     let message = format!("PONG @ {}", time.seconds_since_startup);
-                    match net.send(*handle, Packet::copy_from_slice(message.as_bytes())) {
+                    match net.send(*handle, Packet::from(message)) {
                         Ok(()) => {
                             log::info!("Sent PONG: {}", message);
                         }

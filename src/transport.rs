@@ -1,6 +1,6 @@
 use bevy::tasks::{Task, TaskPool};
 use bytes::Bytes;
-use std::{error::Error, fmt::Debug, net::SocketAddr};
+use std::{error::Error, net::SocketAddr};
 
 use naia_client_socket::{
     ClientSocketTrait, MessageSender as ClientSender, Packet as ClientPacket,
@@ -10,16 +10,9 @@ use naia_server_socket::{MessageSender as ServerSender, Packet as ServerPacket};
 
 use turbulence::{
     buffer::BufferPacketPool,
-    message_channels::{
-        ChannelAlreadyRegistered, ChannelMessage, MessageChannelMode, MessageChannelSettings,
-        MessageChannels, MessageChannelsBuilder,
-    },
+    message_channels::{MessageChannels, MessageChannelsBuilder},
     packet::PacketPool,
-    packet_multiplexer::{
-        IncomingMultiplexedPackets, MuxPacket, MuxPacketPool, OutgoingMultiplexedPackets,
-        PacketMultiplexer,
-    },
-    reliable_channel,
+    packet_multiplexer::{IncomingMultiplexedPackets, MuxPacket, MuxPacketPool, PacketMultiplexer},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -120,21 +113,14 @@ impl Connection for ServerConnection {
 
         let mut multiplexer = PacketMultiplexer::new();
         self.channels = Some(builder.build(&mut multiplexer));
-        let (mut channels_rx, mut channels_tx) = multiplexer.start();
+        let (channels_rx, mut channels_tx) = multiplexer.start();
         self.channels_rx = Some(channels_rx);
 
         let mut sender = self.sender.take().unwrap();
         let client_address = self.client_address;
         self.channels_task = Some(self.task_pool.spawn(async move {
-            println!("server spawned");
             loop {
-                println!("server looping");
                 let packet = channels_tx.next().await.unwrap();
-                println!(
-                    "server packet to network! {} [{}]",
-                    packet.len(),
-                    client_address
-                );
                 sender
                     .send(ServerPacket::new(client_address, (*packet).into()))
                     .await
@@ -213,17 +199,14 @@ impl Connection for ClientConnection {
 
         let mut multiplexer = PacketMultiplexer::new();
         self.channels = Some(builder.build(&mut multiplexer));
-        let (mut channels_rx, mut channels_tx) = multiplexer.start();
+        let (channels_rx, mut channels_tx) = multiplexer.start();
         self.channels_rx = Some(channels_rx);
 
         let mut sender = self.sender.take().unwrap();
         self.channels_task = Some(self.task_pool.spawn(async move {
-            println!("client spawned");
             loop {
-                println!("client looping");
                 match channels_tx.next().await {
                     Some(packet) => {
-                        println!("client packet to network! {}", packet.len());
                         sender.send(ClientPacket::new((*packet).into())).unwrap();
                     }
                     None => {

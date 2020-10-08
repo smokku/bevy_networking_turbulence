@@ -18,19 +18,16 @@ use std::{
 
 use naia_client_socket::{ClientSocket, LinkConditionerConfig};
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{MessageSender as ServerSender, Packet as ServerPacket, ServerSocket};
+use naia_server_socket::{MessageSender as ServerSender, ServerSocket};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_server_socket::find_my_ip_address;
 
 use turbulence::{
-    buffer::{BufferPacket, BufferPacketPool},
-    message_channels::{
-        ChannelAlreadyRegistered, ChannelMessage, MessageChannels, MessageChannelsBuilder,
-    },
+    buffer::BufferPacketPool,
+    message_channels::ChannelMessage,
     packet::{Packet as PoolPacket, PacketPool, MAX_PACKET_LEN},
-    packet_multiplexer::{MuxPacket, MuxPacketPool, PacketMultiplexer},
-    reliable_channel,
+    packet_multiplexer::MuxPacketPool,
 };
 pub use turbulence::{
     message_channels::{MessageChannelMode, MessageChannelSettings},
@@ -78,8 +75,9 @@ pub struct NetworkResource {
     channels_builder_fn: Option<Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>>,
 }
 
+#[allow(dead_code)] // FIXME: remove this struct?
 struct ServerListener {
-    receiver_task: bevy::tasks::Task<()>,
+    receiver_task: bevy::tasks::Task<()>, // needed to keep receiver_task alive
     sender: ServerSender,
     socket_address: SocketAddr,
 }
@@ -252,9 +250,6 @@ impl NetworkResource {
 
     pub fn broadcast_message<M: ChannelMessage + Debug + Clone>(&mut self, message: M) {
         // log::info!("Broadcast:\n{:?}", message);
-        print!(".");
-        use std::io::Write;
-        std::io::stdout().flush().unwrap();
         for (handle, connection) in self.connections.iter_mut() {
             let channels = connection.channels().unwrap();
             let result = channels.send(message.clone());
@@ -317,7 +312,7 @@ pub fn receive_packets(
                         pool_packet[..].copy_from_slice(&*packet);
                         match channels_rx.try_send(pool_packet) {
                             Ok(()) => {
-                                print!("!");
+                                // cool
                             }
                             Err(err) => {
                                 log::error!("Channel Incoming Error: {}", err);

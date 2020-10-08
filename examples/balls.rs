@@ -17,7 +17,7 @@ use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
 };
-use serde::{ser::SerializeTupleStruct, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
@@ -32,20 +32,17 @@ fn main() {
         .init()
         .expect("A logger was already initialized");
 
-    App::build().add_plugin(Example).run();
-}
-
-struct Pawn {
-    controller: u32,
+    App::build().add_plugin(BallsExample).run();
 }
 
 struct Ball {
     velocity: Vec3,
+    controller: u32,
 }
 
-struct Example;
+struct BallsExample;
 
-impl Plugin for Example {
+impl Plugin for BallsExample {
     fn build(&self, app: &mut AppBuilder) {
         let args = parse_args();
         if args.is_server {
@@ -58,6 +55,7 @@ impl Plugin for Example {
                 .add_startup_system(server_setup.system())
                 .add_system(ball_movement_system.system())
                 .add_resource(NetworkBroadcast { frame: 0 })
+                .add_system_to_stage(stage::PRE_UPDATE, handle_messages_server.system())
                 .add_system_to_stage(stage::POST_UPDATE, network_broadcast_system.system())
         } else {
             // Client
@@ -69,6 +67,7 @@ impl Plugin for Example {
             .add_default_plugins()
             .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
             .add_startup_system(client_setup.system())
+            .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
         }
         .add_resource(args)
         .add_plugin(NetworkingPlugin)
@@ -88,13 +87,6 @@ fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Tran
 }
 
 fn server_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
-    commands
-        .spawn((Pawn { controller: 1 },))
-        .with(Ball {
-            velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
-        })
-        .with(Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)));
-
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
@@ -102,21 +94,8 @@ fn server_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
     net.listen(socket_address);
 }
 
-fn client_setup(
-    mut commands: Commands,
-    mut net: ResMut<NetworkResource>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
     commands.spawn(Camera2dComponents::default());
-    // .spawn(SpriteComponents {
-    //     material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
-    //     transform: Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)),
-    //     sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-    //     ..Default::default()
-    // })
-    // .with(Ball {
-    //     velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
-    // });
 
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
@@ -204,6 +183,7 @@ struct NetworkReader {
 }
 
 fn handle_packets(
+    mut commands: Commands,
     mut net: ResMut<NetworkResource>,
     mut state: ResMut<NetworkReader>,
     args: Res<Args>,
@@ -220,6 +200,14 @@ fn handle_packets(
                                 handle,
                                 remote_address
                             );
+
+                            // New client connected - spawn a ball
+                            commands
+                                .spawn((Ball {
+                                    controller: *handle,
+                                    velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
+                                },))
+                                .with(Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)));
                         }
                         None => {
                             log::debug!("Connected on [{}]", handle);
@@ -251,7 +239,9 @@ fn handle_packets(
             _ => {}
         }
     }
+}
 
+fn handle_messages_server(mut net: ResMut<NetworkResource>) {
     for (handle, connection) in net.connections.iter_mut() {
         let channels = connection.channels().unwrap();
         while let Some(hello_message) = channels.recv::<HelloMessage>() {
@@ -260,14 +250,66 @@ fn handle_packets(
                 handle,
                 hello_message.id
             );
+            // TODO: store client id?
         }
 
-        while let Some(state_message) = channels.recv::<GameStateMessage>() {
+        while let Some(_state_message) = channels.recv::<GameStateMessage>() {
+            log::error!("GameStateMessage received on [{}]", handle);
+        }
+    }
+}
+
+fn handle_messages_client(
+    mut commands: Commands,
+    mut net: ResMut<NetworkResource>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut balls: Query<(Entity, &mut Ball, &mut Transform)>,
+) {
+    for (handle, connection) in net.connections.iter_mut() {
+        let channels = connection.channels().unwrap();
+        while let Some(_hello_message) = channels.recv::<HelloMessage>() {
+            log::error!("HelloMessage received on [{}]", handle);
+        }
+
+        while let Some(mut state_message) = channels.recv::<GameStateMessage>() {
             log::info!(
                 "GameStateMessage received on [{}]: {:?}",
                 handle,
                 state_message
             );
+
+            // update all balls
+            for (entity, mut ball, mut transform) in &mut balls.iter() {
+                if let Some(index) = state_message
+                    .balls
+                    .iter()
+                    .position(|&update| update.0 == entity.id())
+                {
+                    let (_id, velocity, translation) = state_message.balls.remove(index);
+                    ball.velocity = velocity;
+                    transform.set_translation(translation);
+                } else {
+                    // TODO: despawn disconnected balls
+                }
+            }
+            // create new balls
+            for (id, velocity, translation) in state_message.balls.iter() {
+                commands
+                    .insert(
+                        Entity::new(*id),
+                        (Ball {
+                            controller: *id,
+                            velocity: *velocity,
+                        },),
+                    )
+                    .with(Transform::from_translation(*translation))
+                    .with(SpriteComponents {
+                        material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+                        transform: Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)),
+                        sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                        ..Default::default()
+                    });
+            }
         }
     }
 }

@@ -171,13 +171,15 @@ fn network_broadcast_system(
         frame: state.frame,
         balls: Vec::new(),
     };
+    state.frame += 1;
+
     for (entity, ball, transform) in &mut ball_query.iter() {
         message
             .balls
             .push((entity.id(), ball.velocity, transform.translation()));
     }
+
     net.broadcast_message(message);
-    state.frame += 1;
 }
 
 #[derive(Default)]
@@ -265,7 +267,7 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>) {
     }
 }
 
-type ServerIds = HashMap<u32, u32>;
+type ServerIds = HashMap<u32, (u32, u32)>;
 
 fn handle_messages_client(
     mut commands: Commands,
@@ -280,7 +282,11 @@ fn handle_messages_client(
             log::error!("HelloMessage received on [{}]", handle);
         }
 
+        // it is possible that many state updates came at the same time - spawn once
+        let mut to_spawn: HashMap<u32, (u32, Vec3, Vec3)> = HashMap::new();
+
         while let Some(mut state_message) = channels.recv::<GameStateMessage>() {
+            let message_frame = state_message.frame;
             log::info!(
                 "GameStateMessage received on [{}]: {:?}",
                 handle,
@@ -289,13 +295,23 @@ fn handle_messages_client(
 
             // update all balls
             for (entity, mut ball, mut transform) in &mut balls.iter() {
-                let server_id = *server_ids.get(&entity.id()).unwrap();
+                let server_id_entry = server_ids.get_mut(&entity.id()).unwrap();
+                let (server_id, update_frame) = *server_id_entry;
+
+                log::info!("Checking {} / {} @{}", entity.id(), server_id, update_frame);
+
                 if let Some(index) = state_message
                     .balls
                     .iter()
                     .position(|&update| update.0 == server_id)
                 {
                     let (_id, velocity, translation) = state_message.balls.remove(index);
+
+                    if update_frame > message_frame {
+                        continue;
+                    }
+                    server_id_entry.1 = message_frame;
+
                     ball.velocity = velocity;
                     transform.set_translation(translation);
                 } else {
@@ -303,22 +319,32 @@ fn handle_messages_client(
                 }
             }
             // create new balls
-            for (id, velocity, translation) in state_message.balls.iter() {
-                let entity = commands
+            for (id, velocity, translation) in state_message.balls.drain(..) {
+                if let Some((frame, _velocity, _translation)) = to_spawn.get(&id) {
+                    if *frame > message_frame {
+                        continue;
+                    }
+                };
+                to_spawn.insert(id, (message_frame, velocity, translation));
+            }
+        }
+
+        for (id, (frame, velocity, translation)) in to_spawn.iter() {
+            log::info!("spawning {} @{}", id, frame);
+            let entity = commands
                 .spawn(SpriteComponents {
-                            material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+                    material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
                     transform: Transform::from_translation(*translation),
-                            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-                            ..Default::default()
+                    sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                    ..Default::default()
                 })
                 .with(Ball {
                     velocity: *velocity,
                 })
                 .with(Pawn { controller: *id })
-                    .current_entity()
-                    .unwrap();
-                server_ids.insert(entity.id(), *id);
-            }
+                .current_entity()
+                .unwrap();
+            server_ids.insert(entity.id(), (*id, *frame));
         }
     }
 }

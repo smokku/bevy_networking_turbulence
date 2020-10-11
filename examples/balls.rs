@@ -222,24 +222,19 @@ fn handle_packets(
 
                             // New client connected - spawn a ball
                             let mut rng = rand::thread_rng();
+                            let vel_x = rng.gen_range(-0.5, 0.5);
+                            let vel_y = rng.gen_range(-0.5, 0.5);
+                            let pos_x = rng.gen_range(0.0, BOARD_WIDTH as f32);
+                            let pos_y = rng.gen_range(0.0, BOARD_HEIGHT as f32);
+                            log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
                             commands.spawn((
                                 Ball {
-                                    velocity: 400.0
-                                        * Vec3::new(
-                                            rng.gen_range(-0.5, 0.5),
-                                            rng.gen_range(-0.5, 0.5),
-                                            0.0,
-                                        )
-                                        .normalize(),
+                                    velocity: 400.0 * Vec3::new(vel_x, vel_y, 0.0).normalize(),
                                 },
                                 Pawn {
                                     controller: *handle,
                                 },
-                                Transform::from_translation(Vec3::new(
-                                    rng.gen_range(0.0, BOARD_WIDTH as f32),
-                                    rng.gen_range(0.0, BOARD_HEIGHT as f32),
-                                    1.0,
-                                )),
+                                Transform::from_translation(Vec3::new(pos_x, pos_y, 1.0)),
                             ));
                         }
                         None => {
@@ -356,7 +351,9 @@ fn handle_messages_client(
             log::info!("Spawning {} @{}", id, frame);
             let entity = commands
                 .spawn(SpriteComponents {
-                    material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+                    material: materials.add(
+                        Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)).into(),
+                    ),
                     transform: Transform::from_translation(*translation),
                     sprite: Sprite::new(Vec2::new(30.0, 30.0)),
                     ..Default::default()

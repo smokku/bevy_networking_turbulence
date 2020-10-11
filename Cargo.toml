@@ -28,6 +28,7 @@ async-compat = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 simple_logger = "1"
+rand = "0.7"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 console_error_panic_hook = "0.1.6"

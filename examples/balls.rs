@@ -9,7 +9,7 @@ use bevy::{
     app::{stage, App, EventReader, Events, ScheduleRunnerPlugin},
     core::CorePlugin,
     prelude::*,
-    render::pass::ClearColor,
+    render::{camera::WindowOrigin, pass::ClearColor},
     sprite::collide_aabb::{collide, Collision},
     type_registry::TypeRegistryPlugin,
 };
@@ -17,6 +17,7 @@ use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
@@ -86,6 +87,17 @@ fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Tran
 
     for (ball, mut transform) in &mut ball_query.iter() {
         transform.translate(ball.velocity * delta_seconds);
+        let translation = transform.translation_mut();
+        let mut x = translation.x() as i32 % BOARD_WIDTH as i32;
+        let mut y = translation.y() as i32 % BOARD_HEIGHT as i32;
+        if x < 0 {
+            x += BOARD_WIDTH as i32;
+        }
+        if y < 0 {
+            y += BOARD_HEIGHT as i32;
+        }
+        translation.set_x(x as f32);
+        translation.set_y(y as f32);
     }
 }
 
@@ -98,7 +110,9 @@ fn server_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
 }
 
 fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
-    commands.spawn(Camera2dComponents::default());
+    let mut camera = Camera2dComponents::default();
+    camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
+    commands.spawn(camera);
 
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
@@ -207,14 +221,25 @@ fn handle_packets(
                             );
 
                             // New client connected - spawn a ball
+                            let mut rng = rand::thread_rng();
                             commands.spawn((
                                 Ball {
-                                    velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
+                                    velocity: 400.0
+                                        * Vec3::new(
+                                            rng.gen_range(-0.5, 0.5),
+                                            rng.gen_range(-0.5, 0.5),
+                                            0.0,
+                                        )
+                                        .normalize(),
                                 },
                                 Pawn {
                                     controller: *handle,
                                 },
-                                Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)),
+                                Transform::from_translation(Vec3::new(
+                                    rng.gen_range(0.0, BOARD_WIDTH as f32),
+                                    rng.gen_range(0.0, BOARD_HEIGHT as f32),
+                                    1.0,
+                                )),
                             ));
                         }
                         None => {
@@ -298,8 +323,6 @@ fn handle_messages_client(
                 let server_id_entry = server_ids.get_mut(&entity.id()).unwrap();
                 let (server_id, update_frame) = *server_id_entry;
 
-                log::info!("Checking {} / {} @{}", entity.id(), server_id, update_frame);
-
                 if let Some(index) = state_message
                     .balls
                     .iter()
@@ -330,7 +353,7 @@ fn handle_messages_client(
         }
 
         for (id, (frame, velocity, translation)) in to_spawn.iter() {
-            log::info!("spawning {} @{}", id, frame);
+            log::info!("Spawning {} @{}", id, frame);
             let entity = commands
                 .spawn(SpriteComponents {
                     material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),

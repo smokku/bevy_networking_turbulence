@@ -1,0 +1,3 @@
+- balls example - Hello message sent/received twice
+
+- client commands.set_entity_reserver(NotAllowedReserver)

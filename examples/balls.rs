@@ -18,7 +18,7 @@ use bevy_networking_turbulence::{
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
 };
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 mod utils;
 use utils::*;
@@ -68,6 +68,7 @@ impl Plugin for BallsExample {
             .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
             .add_startup_system(client_setup.system())
             .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
+            .add_resource(ServerIds::default())
         }
         .add_resource(args)
         .add_plugin(NetworkingPlugin)
@@ -259,9 +260,12 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>) {
     }
 }
 
+type ServerIds = HashMap<u32, u32>;
+
 fn handle_messages_client(
     mut commands: Commands,
     mut net: ResMut<NetworkResource>,
+    mut server_ids: ResMut<ServerIds>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut balls: Query<(Entity, &mut Ball, &mut Transform)>,
 ) {
@@ -280,10 +284,11 @@ fn handle_messages_client(
 
             // update all balls
             for (entity, mut ball, mut transform) in &mut balls.iter() {
+                let server_id = *server_ids.get(&entity.id()).unwrap();
                 if let Some(index) = state_message
                     .balls
                     .iter()
-                    .position(|&update| update.0 == entity.id())
+                    .position(|&update| update.0 == server_id)
                 {
                     let (_id, velocity, translation) = state_message.balls.remove(index);
                     ball.velocity = velocity;
@@ -294,21 +299,23 @@ fn handle_messages_client(
             }
             // create new balls
             for (id, velocity, translation) in state_message.balls.iter() {
-                commands
-                    .insert(
-                        Entity::new(*id),
-                        (Ball {
+                let entity = commands
+                    .spawn((
+                        Ball {
                             controller: *id,
                             velocity: *velocity,
-                        },),
-                    )
-                    .with(Transform::from_translation(*translation))
-                    .with(SpriteComponents {
-                        material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
-                        transform: Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)),
-                        sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-                        ..Default::default()
-                    });
+                        },
+                        Transform::from_translation(*translation),
+                        SpriteComponents {
+                            material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+                            transform: Transform::from_translation(Vec3::new(0.0, -50.0, 1.0)),
+                            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                            ..Default::default()
+                        },
+                    ))
+                    .current_entity()
+                    .unwrap();
+                server_ids.insert(entity.id(), *id);
             }
         }
     }

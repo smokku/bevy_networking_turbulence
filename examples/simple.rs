@@ -96,7 +96,7 @@ fn handle_packets(
                     let message = format!("PONG @ {}", time.seconds_since_startup);
                     match net.send(*handle, Packet::from(message)) {
                         Ok(()) => {
-                            log::info!("Sent PONG: {}", message);
+                            log::info!("Sent PONG");
                         }
                         Err(error) => {
                             log::info!("PONG send error: {}", error);

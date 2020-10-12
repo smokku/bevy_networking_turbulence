@@ -10,7 +10,6 @@ use bevy::{
     core::CorePlugin,
     prelude::*,
     render::{camera::WindowOrigin, pass::ClearColor},
-    sprite::collide_aabb::{collide, Collision},
     type_registry::TypeRegistryPlugin,
 };
 use bevy_networking_turbulence::{
@@ -72,6 +71,7 @@ impl Plugin for BallsExample {
             .add_startup_system(client_setup.system())
             .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
             .add_resource(ServerIds::default())
+            .add_system(ball_control_system.system())
         }
         .add_resource(args)
         .add_plugin(NetworkingPlugin)
@@ -82,11 +82,8 @@ impl Plugin for BallsExample {
 }
 
 fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Transform)>) {
-    // clamp the timestep to stop the ball from escaping when the game starts
-    let delta_seconds = f32::min(0.2, time.delta_seconds);
-
     for (ball, mut transform) in &mut ball_query.iter() {
-        transform.translate(ball.velocity * delta_seconds);
+        transform.translate(ball.velocity * time.delta_seconds);
         let translation = transform.translation_mut();
         let mut x = translation.x() as i32 % BOARD_WIDTH as i32;
         let mut y = translation.y() as i32 % BOARD_HEIGHT as i32;
@@ -101,7 +98,17 @@ fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Tran
     }
 }
 
-fn server_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
+fn ball_control_system(mut net: ResMut<NetworkResource>, keyboard_input: Res<Input<KeyCode>>) {
+    if keyboard_input.pressed(KeyCode::Left) {
+        net.broadcast_message(ClientMessage::Direction(Direction::Left));
+    }
+
+    if keyboard_input.pressed(KeyCode::Right) {
+        net.broadcast_message(ClientMessage::Direction(Direction::Right));
+    }
+}
+
+fn server_setup(mut net: ResMut<NetworkResource>) {
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
@@ -124,7 +131,7 @@ fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
 fn network_setup(mut net: ResMut<NetworkResource>) {
     net.set_channels_builder(|builder: &mut ConnectionChannelsBuilder| {
         builder
-            .register::<HelloMessage>(CLIENT_STATE_MESSAGE_SETTINGS)
+            .register::<ClientMessage>(CLIENT_STATE_MESSAGE_SETTINGS)
             .unwrap();
         builder
             .register::<GameStateMessage>(GAME_STATE_MESSAGE_SETTINGS)
@@ -137,9 +144,16 @@ struct NetworkBroadcast {
     frame: u32,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+enum Direction {
+    Left,
+    Right,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct HelloMessage {
-    id: String,
+enum ClientMessage {
+    Hello(String),
+    Direction(Direction),
 }
 
 const CLIENT_STATE_MESSAGE_SETTINGS: MessageChannelSettings = MessageChannelSettings {
@@ -244,12 +258,7 @@ fn handle_packets(
 
                     if !args.is_server {
                         log::debug!("Sending Hello on [{}]", handle);
-                        match net.send_message(
-                            *handle,
-                            HelloMessage {
-                                id: "test".to_string(),
-                            },
-                        ) {
+                        match net.send_message(*handle, ClientMessage::Hello("test".to_string())) {
                             Ok(msg) => match msg {
                                 Some(msg) => {
                                     log::error!("Unable to send Hello: {:?}", msg);
@@ -269,16 +278,32 @@ fn handle_packets(
     }
 }
 
-fn handle_messages_server(mut net: ResMut<NetworkResource>) {
+fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&mut Ball, &Pawn)>) {
     for (handle, connection) in net.connections.iter_mut() {
         let channels = connection.channels().unwrap();
-        while let Some(hello_message) = channels.recv::<HelloMessage>() {
-            log::info!(
-                "HelloMessage received on [{}]: {}",
+        while let Some(client_message) = channels.recv::<ClientMessage>() {
+            log::debug!(
+                "ClientMessage received on [{}]: {:?}",
                 handle,
-                hello_message.id
+                client_message
             );
-            // TODO: store client id?
+            match client_message {
+                ClientMessage::Hello(id) => {
+                    log::info!("Client [{}] connected on [{}]", id, handle);
+                    // TODO: store client id?
+                }
+                ClientMessage::Direction(dir) => {
+                    let mut angle: f32 = 0.03;
+                    if dir == Direction::Right {
+                        angle *= -1.0;
+                    }
+                    for (mut ball, pawn) in &mut balls.iter() {
+                        if pawn.controller == *handle {
+                            ball.velocity = Quat::from_rotation_z(angle) * ball.velocity;
+                        }
+                    }
+                }
+            }
         }
 
         while let Some(_state_message) = channels.recv::<GameStateMessage>() {
@@ -298,8 +323,8 @@ fn handle_messages_client(
 ) {
     for (handle, connection) in net.connections.iter_mut() {
         let channels = connection.channels().unwrap();
-        while let Some(_hello_message) = channels.recv::<HelloMessage>() {
-            log::error!("HelloMessage received on [{}]", handle);
+        while let Some(_client_message) = channels.recv::<ClientMessage>() {
+            log::error!("ClientMessage received on [{}]", handle);
         }
 
         // it is possible that many state updates came at the same time - spawn once

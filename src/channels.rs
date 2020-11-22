@@ -57,8 +57,7 @@ impl Deref for TaskPoolRuntime {
 
 impl Runtime for TaskPoolRuntime {
     type Instant = instant::Instant;
-    type Delay = Pin<Box<dyn Future<Output = ()> + Send>>;
-    type Interval = Pin<Box<dyn Stream<Item = instant::Instant> + Send>>;
+    type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
     fn spawn<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
         self.tasks
@@ -79,21 +78,11 @@ impl Runtime for TaskPoolRuntime {
         later.duration_since(earlier)
     }
 
-    fn delay(&self, duration: Duration) -> Self::Delay {
+    fn sleep(&self, duration: Duration) -> Self::Sleep {
         let state = Arc::clone(&self.0);
         Box::pin(async move {
             do_delay(state, duration).await;
         })
-    }
-
-    fn interval(&self, duration: Duration) -> Self::Interval {
-        Box::pin(stream::unfold(
-            Arc::clone(&self.0),
-            move |state| async move {
-                let time = do_delay(Arc::clone(&state), duration).await;
-                Some((time, state))
-            },
-        ))
     }
 }
 

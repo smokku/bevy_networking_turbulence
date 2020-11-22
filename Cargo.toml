@@ -10,9 +10,11 @@ use-udp = ["naia-server-socket/use-udp"]
 use-webrtc = ["naia-server-socket/use-webrtc"]
 
 [dependencies]
-bevy = { path = "../bevy", version = "0.2" }
-turbulence = { path = "../turbulence", version = "0.1.2-alpha.0" }
-naia-client-socket = { path = "../naia-socket/client", version = "0.3" }
+bevy = "0.3"
+turbulence = "0.3"
+naia-client-socket = { git = "https://github.com/smokku/naia-socket.git", rev = "66a7dff", version = "0.4", features = [
+    "multithread"
+] }
 bytes = "0.5"
 log = "0.4"
 futures-lite = "1.4"
@@ -23,8 +25,7 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-naia-server-socket = { path = "../naia-socket/server", version = "0.3" }
-async-compat = "0.1"
+naia-server-socket = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 simple_logger = "1"

@@ -1,7 +1,8 @@
 use bevy::{
-    app::{App, EventReader, Events, ScheduleRunnerPlugin},
+    app::{App, EventReader, Events, ScheduleRunnerSettings},
     core::Time,
     ecs::prelude::*,
+    MinimalPlugins,
 };
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
 
@@ -27,11 +28,10 @@ fn main() {
 
     App::build()
         // minimal plugins necessary for timers + headless loop
-        .add_plugin(bevy::type_registry::TypeRegistryPlugin::default())
-        .add_plugin(bevy::core::CorePlugin)
-        .add_plugin(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
+        .add_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))
+        .add_plugins(MinimalPlugins)
         // The NetworkingPlugin
         .add_plugin(NetworkingPlugin)
         // Our networking

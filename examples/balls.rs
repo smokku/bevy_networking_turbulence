@@ -5,13 +5,7 @@
   via reliable channel client->server
 */
 
-use bevy::{
-    app::{stage, App, EventReader, Events, ScheduleRunnerPlugin},
-    core::CorePlugin,
-    prelude::*,
-    render::{camera::WindowOrigin, pass::ClearColor},
-    type_registry::TypeRegistryPlugin,
-};
+use bevy::{app::ScheduleRunnerSettings, prelude::*, render::camera::WindowOrigin};
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
@@ -49,16 +43,15 @@ impl Plugin for BallsExample {
         let args = parse_args();
         if args.is_server {
             // Server
-            app.add_plugin(TypeRegistryPlugin::default())
-                .add_plugin(CorePlugin)
-                .add_plugin(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-                    1.0 / 60.0,
-                )))
-                .add_startup_system(server_setup.system())
-                .add_system(ball_movement_system.system())
-                .add_resource(NetworkBroadcast { frame: 0 })
-                .add_system_to_stage(stage::PRE_UPDATE, handle_messages_server.system())
-                .add_system_to_stage(stage::POST_UPDATE, network_broadcast_system.system())
+            app.add_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
+                1.0 / 60.0,
+            )))
+            .add_plugins(MinimalPlugins)
+            .add_startup_system(server_setup.system())
+            .add_system(ball_movement_system.system())
+            .add_resource(NetworkBroadcast { frame: 0 })
+            .add_system_to_stage(stage::PRE_UPDATE, handle_messages_server.system())
+            .add_system_to_stage(stage::POST_UPDATE, network_broadcast_system.system())
         } else {
             // Client
             app.add_resource(WindowDescriptor {
@@ -66,7 +59,7 @@ impl Plugin for BallsExample {
                 height: BOARD_HEIGHT,
                 ..Default::default()
             })
-            .add_default_plugins()
+            .add_plugins(DefaultPlugins)
             .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
             .add_startup_system(client_setup.system())
             .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
@@ -82,9 +75,8 @@ impl Plugin for BallsExample {
 }
 
 fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Transform)>) {
-    for (ball, mut transform) in &mut ball_query.iter() {
-        transform.translate(ball.velocity * time.delta_seconds);
-        let translation = transform.translation_mut();
+    for (ball, mut transform) in ball_query.iter_mut() {
+        let mut translation = transform.translation + (ball.velocity * time.delta_seconds);
         let mut x = translation.x() as i32 % BOARD_WIDTH as i32;
         let mut y = translation.y() as i32 % BOARD_HEIGHT as i32;
         if x < 0 {
@@ -95,6 +87,7 @@ fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Tran
         }
         translation.set_x(x as f32);
         translation.set_y(y as f32);
+        transform.translation = translation;
     }
 }
 
@@ -193,7 +186,7 @@ const GAME_STATE_MESSAGE_SETTINGS: MessageChannelSettings = MessageChannelSettin
 fn network_broadcast_system(
     mut state: ResMut<NetworkBroadcast>,
     mut net: ResMut<NetworkResource>,
-    mut ball_query: Query<(Entity, &Ball, &Transform)>,
+    ball_query: Query<(Entity, &Ball, &Transform)>,
 ) {
     let mut message = GameStateMessage {
         frame: state.frame,
@@ -201,10 +194,10 @@ fn network_broadcast_system(
     };
     state.frame += 1;
 
-    for (entity, ball, transform) in &mut ball_query.iter() {
+    for (entity, ball, transform) in ball_query.iter() {
         message
             .balls
-            .push((entity.id(), ball.velocity, transform.translation()));
+            .push((entity.id(), ball.velocity, transform.translation));
     }
 
     net.broadcast_message(message);
@@ -297,7 +290,7 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&m
                     if dir == Direction::Right {
                         angle *= -1.0;
                     }
-                    for (mut ball, pawn) in &mut balls.iter() {
+                    for (mut ball, pawn) in balls.iter_mut() {
                         if pawn.controller == *handle {
                             ball.velocity = Quat::from_rotation_z(angle) * ball.velocity;
                         }
@@ -339,7 +332,7 @@ fn handle_messages_client(
             );
 
             // update all balls
-            for (entity, mut ball, mut transform) in &mut balls.iter() {
+            for (entity, mut ball, mut transform) in balls.iter_mut() {
                 let server_id_entry = server_ids.get_mut(&entity.id()).unwrap();
                 let (server_id, update_frame) = *server_id_entry;
 
@@ -356,7 +349,7 @@ fn handle_messages_client(
                     server_id_entry.1 = message_frame;
 
                     ball.velocity = velocity;
-                    transform.set_translation(translation);
+                    transform.translation = translation;
                 } else {
                     // TODO: despawn disconnected balls
                 }

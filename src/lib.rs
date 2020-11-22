@@ -5,8 +5,6 @@ use bevy::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use async_compat::Compat;
-#[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::{
     collections::HashMap,
@@ -16,9 +14,12 @@ use std::{
     sync::{atomic, Arc, Mutex, RwLock},
 };
 
-use naia_client_socket::{ClientSocket, LinkConditionerConfig};
+use naia_client_socket::{ClientSocket, LinkConditionerConfig as ClientLinkConditionerConfig};
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{MessageSender as ServerSender, ServerSocket};
+use naia_server_socket::{
+    LinkConditionerConfig as ServerLinkConditionerConfig, MessageSender as ServerSender,
+    ServerSocket,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_server_socket::find_my_ip_address;
@@ -117,14 +118,14 @@ impl NetworkResource {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self, socket_address: SocketAddr) {
         let mut server_socket =
-            futures_lite::future::block_on(Compat::new(ServerSocket::listen(socket_address)))
-                .with_link_conditioner(&LinkConditionerConfig::good_condition());
+            futures_lite::future::block_on(ServerSocket::listen(socket_address))
+                .with_link_conditioner(&ServerLinkConditionerConfig::good_condition());
         let sender = server_socket.get_sender();
         let server_channels = self.server_channels.clone();
         let pending_connections = self.pending_connections.clone();
         let task_pool = self.task_pool.clone();
 
-        let receiver_task = self.task_pool.spawn(Compat::new(async move {
+        let receiver_task = self.task_pool.spawn(async move {
             loop {
                 match server_socket.receive().await {
                     Ok(packet) => {
@@ -176,7 +177,7 @@ impl NetworkResource {
                     }
                 }
             }
-        }));
+        });
 
         self.listeners.push(ServerListener {
             receiver_task,
@@ -187,7 +188,7 @@ impl NetworkResource {
 
     pub fn connect(&mut self, socket_address: SocketAddr) {
         let mut client_socket = ClientSocket::connect(socket_address)
-            .with_link_conditioner(&LinkConditionerConfig::good_condition());
+            .with_link_conditioner(&ClientLinkConditionerConfig::good_condition());
         let sender = client_socket.get_sender();
 
         self.pending_connections
@@ -254,11 +255,8 @@ impl NetworkResource {
             let channels = connection.channels().unwrap();
             let result = channels.send(message.clone());
             channels.flush::<M>();
-            match result {
-                Some(_) => {
-                    log::error!("Failed broadcast to [{}]", handle);
-                }
-                None => {}
+            if let Some(msg) = result {
+                log::error!("Failed broadcast to [{}]: {:?}", handle, msg);
             }
         }
     }

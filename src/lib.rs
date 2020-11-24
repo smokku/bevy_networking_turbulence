@@ -76,6 +76,7 @@ pub struct NetworkResource {
     channels_builder_fn: Option<Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)] // FIXME: remove this struct?
 struct ServerListener {
     receiver_task: bevy::tasks::Task<()>, // needed to keep receiver_task alive

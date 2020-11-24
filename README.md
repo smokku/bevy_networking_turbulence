@@ -29,7 +29,7 @@ On other terminal run:
 
 On one terminal run:
 
-    $ env RUST_LOG=debug cargo run --example simple --features use-webrtc -- --server
+    $ env RUST_LOG=debug cargo run --example simple --no-default-features --features use-webrtc -- --server
 
 Change IP address in `examples/simple.rs` / `startup()` function to point to your local machine, and run:
 

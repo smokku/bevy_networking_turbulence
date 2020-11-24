@@ -6,12 +6,14 @@ use bevy::{
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::RwLock;
 use std::{
     collections::HashMap,
     error::Error,
     fmt::Debug,
     net::SocketAddr,
-    sync::{atomic, Arc, Mutex, RwLock},
+    sync::{atomic, Arc, Mutex},
 };
 
 use naia_client_socket::{ClientSocket, LinkConditionerConfig as ClientLinkConditionerConfig};
@@ -108,7 +110,9 @@ impl NetworkResource {
             connections: HashMap::new(),
             connection_sequence: atomic::AtomicU32::new(0),
             pending_connections: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(not(target_arch = "wasm32"))]
             listeners: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             server_channels: Arc::new(RwLock::new(HashMap::new())),
             runtime,
             packet_pool,

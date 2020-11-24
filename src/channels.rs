@@ -60,10 +60,9 @@ impl Runtime for TaskPoolRuntime {
     type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
     fn spawn<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
-        self.tasks
-            .lock()
-            .unwrap()
-            .push(self.pool.spawn(Box::pin(f)));
+        let task = self.pool.spawn(Box::pin(f));
+        #[cfg(not(target_arch = "wasm32"))]
+        self.tasks.lock().unwrap().push(task);
     }
 
     fn now(&self) -> Self::Instant {
@@ -86,6 +85,7 @@ impl Runtime for TaskPoolRuntime {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn do_delay(state: Arc<TaskPoolRuntimeInner>, duration: Duration) -> instant::Instant {
     state
         .pool
@@ -93,5 +93,32 @@ async fn do_delay(state: Arc<TaskPoolRuntimeInner>, duration: Duration) -> insta
             std::thread::sleep(duration);
         })
         .await;
+    instant::Instant::now()
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn do_delay(state: Arc<TaskPoolRuntimeInner>, duration: Duration) -> instant::Instant {
+    use futures::channel::oneshot;
+    use wasm_bindgen::{prelude::*, JsCast};
+
+    fn set_timeout(f: &Closure<dyn FnMut()>, dur: Duration) {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                f.as_ref().unchecked_ref(),
+                dur.as_millis() as i32,
+            )
+            .expect("should register `setTimeout`");
+    }
+
+    let (sender, receiver) = oneshot::channel::<()>();
+
+    let f = move || {
+        sender.send(()).expect("unable to send timeout");
+    };
+    set_timeout(&Closure::once(Box::new(f) as Box<dyn FnOnce()>), duration);
+
+    receiver.await;
+
     instant::Instant::now()
 }

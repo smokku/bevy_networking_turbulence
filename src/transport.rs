@@ -1,4 +1,6 @@
-use bevy::tasks::{Task, TaskPool};
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::tasks::Task;
+use bevy::tasks::TaskPool;
 use bytes::Bytes;
 use std::{error::Error, net::SocketAddr};
 
@@ -16,7 +18,9 @@ use turbulence::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use futures_lite::{future::block_on, StreamExt};
+use futures_lite::future::block_on;
+
+use futures_lite::StreamExt;
 
 use super::channels::{SimpleBufferPool, TaskPoolRuntime};
 
@@ -34,7 +38,7 @@ pub trait Connection: Send + Sync {
 
     fn build_channels(
         &mut self,
-        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        builder_fn: &(dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync),
         runtime: TaskPoolRuntime,
         pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     );
@@ -104,7 +108,7 @@ impl Connection for ServerConnection {
 
     fn build_channels(
         &mut self,
-        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        builder_fn: &(dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync),
         runtime: TaskPoolRuntime,
         pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     ) {
@@ -146,6 +150,7 @@ pub struct ClientConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
 }
 
@@ -161,6 +166,7 @@ impl ClientConnection {
             sender: Some(sender),
             channels: None,
             channels_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
             channels_task: None,
         }
     }
@@ -190,7 +196,7 @@ impl Connection for ClientConnection {
 
     fn build_channels(
         &mut self,
-        builder_fn: &Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>,
+        builder_fn: &(dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync),
         runtime: TaskPoolRuntime,
         pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     ) {
@@ -203,7 +209,8 @@ impl Connection for ClientConnection {
         self.channels_rx = Some(channels_rx);
 
         let mut sender = self.sender.take().unwrap();
-        self.channels_task = Some(self.task_pool.spawn(async move {
+        #[allow(unused_variables)]
+        let channels_task = self.task_pool.spawn(async move {
             loop {
                 match channels_tx.next().await {
                     Some(packet) => {
@@ -215,7 +222,12 @@ impl Connection for ClientConnection {
                     }
                 }
             }
-        }));
+        });
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.channels_task = Some(channels_task);
+        }
     }
 
     fn channels(&mut self) -> Option<&mut MessageChannels> {

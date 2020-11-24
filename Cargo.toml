@@ -12,9 +12,7 @@ use-webrtc = ["naia-server-socket/use-webrtc"]
 [dependencies]
 bevy = { version = "0.3", default-features = false }
 turbulence = "0.3"
-naia-client-socket = { version = "0.4.1", features = [
-    "multithread"
-], path = "../naia-socket/client" }
+naia-client-socket = { version = "0.4.2", features = ["multithread"] }
 bytes = "0.5"
 log = "0.4"
 futures-lite = "1.4"

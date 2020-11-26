@@ -11,6 +11,7 @@ use std::{
 
 use bevy::tasks::{Task, TaskPool};
 use futures::{stream, Stream};
+use futures_timer::Delay;
 
 use turbulence::{
     buffer::BufferPool,
@@ -80,45 +81,7 @@ impl Runtime for TaskPoolRuntime {
     fn sleep(&self, duration: Duration) -> Self::Sleep {
         let state = Arc::clone(&self.0);
         Box::pin(async move {
-            do_delay(state, duration).await;
+            Delay::new(duration).await;
         })
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn do_delay(state: Arc<TaskPoolRuntimeInner>, duration: Duration) -> instant::Instant {
-    state
-        .pool
-        .spawn(async move {
-            std::thread::sleep(duration);
-        })
-        .await;
-    instant::Instant::now()
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn do_delay(state: Arc<TaskPoolRuntimeInner>, duration: Duration) -> instant::Instant {
-    use futures::channel::oneshot;
-    use wasm_bindgen::{prelude::*, JsCast};
-
-    fn set_timeout(f: &Closure<dyn FnMut()>, dur: Duration) {
-        web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                f.as_ref().unchecked_ref(),
-                dur.as_millis() as i32,
-            )
-            .expect("should register `setTimeout`");
-    }
-
-    let (sender, receiver) = oneshot::channel::<()>();
-
-    let f = move || {
-        sender.send(()).expect("unable to send timeout");
-    };
-    set_timeout(&Closure::once(Box::new(f) as Box<dyn FnOnce()>), duration);
-
-    receiver.await;
-
-    instant::Instant::now()
 }

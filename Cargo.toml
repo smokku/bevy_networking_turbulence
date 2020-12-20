@@ -7,17 +7,17 @@ edition = "2018"
 [features]
 default = ["use-udp"]
 use-udp = ["naia-server-socket/use-udp"]
-use-webrtc = ["naia-server-socket/use-webrtc"]
+use-webrtc = ["naia-server-socket/use-webrtc", "naia-client-socket/wbindgen"]
 
 [dependencies]
-bevy = { version = "0.3", default-features = false }
+bevy = { version = "0.4", default-features = false }
 turbulence = "0.3"
-naia-client-socket = { version = "0.4.2", features = ["multithread"] }
-bytes = "0.5"
+naia-client-socket = { version = "0.5", features = ["multithread"] }
+bytes = "0.6"
 log = "0.4"
-futures-lite = "1.4"
-crossbeam-channel = "0.4.4"
-cfg-if = "0.1"
+futures-lite = "1.11"
+crossbeam-channel = "0.5"
+cfg-if = "1.0"
 instant = "0.1"
 futures = "0.3"
 futures-timer = "3.0"
@@ -31,10 +31,10 @@ futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 simple_logger = "1"
-rand = "0.7"
+rand = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-console_error_panic_hook = "0.1.6"
+console_error_panic_hook = "0.1"
 console_log = "0.2"
 
 [[example]]

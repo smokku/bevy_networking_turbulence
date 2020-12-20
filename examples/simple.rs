@@ -69,7 +69,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 
 fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
     if !args.is_server {
-        if (time.seconds_since_startup * 60.) as i64 % 60 == 0 {
+        if (time.seconds_since_startup() * 60.) as i64 % 60 == 0 {
             log::info!("PING");
             net.broadcast(Packet::from("PING"));
         }
@@ -93,7 +93,7 @@ fn handle_packets(
                 let message = String::from_utf8_lossy(packet);
                 log::info!("Got packet on [{}]: {}", handle, message);
                 if message == "PING" {
-                    let message = format!("PONG @ {}", time.seconds_since_startup);
+                    let message = format!("PONG @ {}", time.seconds_since_startup());
                     match net.send(*handle, Packet::from(message)) {
                         Ok(()) => {
                             log::info!("Sent PONG");

@@ -55,8 +55,8 @@ impl Plugin for BallsExample {
         } else {
             // Client
             app.add_resource(WindowDescriptor {
-                width: BOARD_WIDTH,
-                height: BOARD_HEIGHT,
+                width: BOARD_WIDTH as f32,
+                height: BOARD_HEIGHT as f32,
                 ..Default::default()
             })
             .add_plugins(DefaultPlugins)
@@ -76,17 +76,17 @@ impl Plugin for BallsExample {
 
 fn ball_movement_system(time: Res<Time>, mut ball_query: Query<(&Ball, &mut Transform)>) {
     for (ball, mut transform) in ball_query.iter_mut() {
-        let mut translation = transform.translation + (ball.velocity * time.delta_seconds);
-        let mut x = translation.x() as i32 % BOARD_WIDTH as i32;
-        let mut y = translation.y() as i32 % BOARD_HEIGHT as i32;
+        let mut translation = transform.translation + (ball.velocity * time.delta_seconds());
+        let mut x = translation.x as i32 % BOARD_WIDTH as i32;
+        let mut y = translation.y as i32 % BOARD_HEIGHT as i32;
         if x < 0 {
             x += BOARD_WIDTH as i32;
         }
         if y < 0 {
             y += BOARD_HEIGHT as i32;
         }
-        translation.set_x(x as f32);
-        translation.set_y(y as f32);
+        translation.x = x as f32;
+        translation.y = y as f32;
         transform.translation = translation;
     }
 }
@@ -109,8 +109,8 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
     net.listen(socket_address);
 }
 
-fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
-    let mut camera = Camera2dComponents::default();
+fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
+    let mut camera = Camera2dBundle::default();
     camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
     commands.spawn(camera);
 
@@ -209,7 +209,7 @@ struct NetworkReader {
 }
 
 fn handle_packets(
-    mut commands: Commands,
+    commands: &mut Commands,
     mut net: ResMut<NetworkResource>,
     mut state: ResMut<NetworkReader>,
     args: Res<Args>,
@@ -229,10 +229,10 @@ fn handle_packets(
 
                             // New client connected - spawn a ball
                             let mut rng = rand::thread_rng();
-                            let vel_x = rng.gen_range(-0.5, 0.5);
-                            let vel_y = rng.gen_range(-0.5, 0.5);
-                            let pos_x = rng.gen_range(0.0, BOARD_WIDTH as f32);
-                            let pos_y = rng.gen_range(0.0, BOARD_HEIGHT as f32);
+                            let vel_x = rng.gen_range(-0.5..=0.5);
+                            let vel_y = rng.gen_range(-0.5..=0.5);
+                            let pos_x = rng.gen_range(0..BOARD_WIDTH) as f32;
+                            let pos_y = rng.gen_range(0..BOARD_HEIGHT) as f32;
                             log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
                             commands.spawn((
                                 Ball {
@@ -308,7 +308,7 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&m
 type ServerIds = HashMap<u32, (u32, u32)>;
 
 fn handle_messages_client(
-    mut commands: Commands,
+    commands: &mut Commands,
     mut net: ResMut<NetworkResource>,
     mut server_ids: ResMut<ServerIds>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -368,7 +368,7 @@ fn handle_messages_client(
         for (id, (frame, velocity, translation)) in to_spawn.iter() {
             log::info!("Spawning {} @{}", id, frame);
             let entity = commands
-                .spawn(SpriteComponents {
+                .spawn(SpriteBundle {
                     material: materials.add(
                         Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)).into(),
                     ),

@@ -1,8 +1,20 @@
 [package]
 name = "bevy_networking_turbulence"
 version = "0.1.0"
-authors = ["Tomasz Sterna <tomasz@sterna.link>"]
 edition = "2018"
+authors = ["Tomasz Sterna <tomasz@sterna.link>"]
+description = "Networking plugin for Bevy engine running on naia-socket and turbulence libraries"
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/smokku/bevy_networking_turbulence"
+repository = "https://github.com/smokku/bevy_networking_turbulence"
+keywords = ["bevy", "gamedev", "networking", "udp", "webrtc"]
+categories = [
+    "game-development",
+    "network-programming",
+    "wasm",
+    "web-programming",
+]
 
 [features]
 default = ["use-udp"]

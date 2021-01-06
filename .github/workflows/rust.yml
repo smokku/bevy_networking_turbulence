@@ -77,19 +77,19 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --example simple --target wasm32-unknown-unknown
+        args: --example simple --target wasm32-unknown-unknown --no-default-features --features use-webrtc
 
     - name: Install Bevy/default dependencies
       run: |
         sudo apt-get update
         sudo apt-get install pkg-config libx11-dev libasound2-dev libudev-dev
-    - name: Example 'balls' - UDP
+    - name: Example 'channels' - UDP
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --example balls --no-default-features --features use-udp,bevy/default
-    - name: Example 'balls' - WebRTC
+        args: --example channels --no-default-features --features use-udp,bevy/default
+    - name: Example 'channels' - WebRTC
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --example balls --no-default-features --features use-webrtc,bevy/default
+        args: --example channels --no-default-features --features use-webrtc,bevy/default

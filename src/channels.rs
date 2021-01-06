@@ -1,5 +1,8 @@
 #![allow(unused)]
 
+use bevy_tasks::{Task, TaskPool};
+use futures::{stream, Stream};
+use futures_timer::Delay;
 use std::{
     future::Future,
     ops::Deref,
@@ -8,10 +11,6 @@ use std::{
     task::{Context, Poll, Waker},
     time::Duration,
 };
-
-use bevy::tasks::{Task, TaskPool};
-use futures::{stream, Stream};
-use futures_timer::Delay;
 
 use turbulence::{
     buffer::BufferPool,

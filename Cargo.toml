@@ -15,6 +15,7 @@ categories = [
     "wasm",
     "web-programming",
 ]
+exclude = [".git*"]
 
 [features]
 default = ["use-udp"]

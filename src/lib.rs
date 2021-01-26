@@ -14,13 +14,11 @@ use std::{
     sync::{atomic, Arc, Mutex},
 };
 
-use naia_client_socket::{ClientSocket, LinkConditionerConfig as ClientLinkConditionerConfig};
+use naia_client_socket::ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{
-    LinkConditionerConfig as ServerLinkConditionerConfig, MessageSender as ServerSender,
-    ServerSocket,
-};
+use naia_server_socket::{MessageSender as ServerSender, ServerSocket};
 
+pub use naia_client_socket::LinkConditionerConfig;
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_server_socket::find_my_ip_address;
 
@@ -42,7 +40,10 @@ pub use transport::{Connection, ConnectionChannelsBuilder, Packet};
 
 pub type ConnectionHandle = u32;
 
-pub struct NetworkingPlugin;
+#[derive(Default)]
+pub struct NetworkingPlugin {
+    pub link_conditioner: Option<LinkConditionerConfig>,
+}
 
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut AppBuilder) {
@@ -53,9 +54,12 @@ impl Plugin for NetworkingPlugin {
             .0
             .clone();
 
-        app.add_resource(NetworkResource::new(task_pool))
-            .add_event::<NetworkEvent>()
-            .add_system(receive_packets.system());
+        app.add_resource(NetworkResource::new(
+            task_pool,
+            self.link_conditioner.clone(),
+        ))
+        .add_event::<NetworkEvent>()
+        .add_system(receive_packets.system());
     }
 }
 
@@ -74,6 +78,8 @@ pub struct NetworkResource {
     runtime: TaskPoolRuntime,
     packet_pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     channels_builder_fn: Option<Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>>,
+
+    link_conditioner: Option<LinkConditionerConfig>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -98,7 +104,7 @@ unsafe impl Send for NetworkResource {}
 unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
-    fn new(task_pool: TaskPool) -> Self {
+    fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>) -> Self {
         let runtime = TaskPoolRuntime::new(task_pool.clone());
         let packet_pool =
             MuxPacketPool::new(BufferPacketPool::new(SimpleBufferPool(MAX_PACKET_LEN)));
@@ -115,14 +121,22 @@ impl NetworkResource {
             runtime,
             packet_pool,
             channels_builder_fn: None,
+
+            link_conditioner,
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self, socket_address: SocketAddr) {
-        let mut server_socket =
-            futures_lite::future::block_on(ServerSocket::listen(socket_address))
-                .with_link_conditioner(&ServerLinkConditionerConfig::good_condition());
+        let mut server_socket = {
+            let socket = futures_lite::future::block_on(ServerSocket::listen(socket_address));
+
+            if let Some(ref conditioner) = self.link_conditioner {
+                socket.with_link_conditioner(conditioner)
+            } else {
+                socket
+            }
+        };
         let sender = server_socket.get_sender();
         let server_channels = self.server_channels.clone();
         let pending_connections = self.pending_connections.clone();
@@ -190,8 +204,15 @@ impl NetworkResource {
     }
 
     pub fn connect(&mut self, socket_address: SocketAddr) {
-        let mut client_socket = ClientSocket::connect(socket_address)
-            .with_link_conditioner(&ClientLinkConditionerConfig::good_condition());
+        let mut client_socket = {
+            let socket = ClientSocket::connect(socket_address);
+
+            if let Some(ref conditioner) = self.link_conditioner {
+                socket.with_link_conditioner(conditioner)
+            } else {
+                socket
+            }
+        };
         let sender = client_socket.get_sender();
 
         self.pending_connections

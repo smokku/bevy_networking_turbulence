@@ -67,7 +67,7 @@ impl Plugin for BallsExample {
             .add_system(ball_control_system.system())
         }
         .add_resource(args)
-        .add_plugin(NetworkingPlugin)
+        .add_plugin(NetworkingPlugin::default())
         .add_startup_system(network_setup.system())
         .add_resource(NetworkReader::default())
         .add_system(handle_packets.system());

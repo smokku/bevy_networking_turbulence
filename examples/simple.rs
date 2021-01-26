@@ -33,7 +33,7 @@ fn main() {
         )))
         .add_plugins(MinimalPlugins)
         // The NetworkingPlugin
-        .add_plugin(NetworkingPlugin)
+        .add_plugin(NetworkingPlugin::default())
         // Our networking
         .add_resource(parse_args())
         .add_startup_system(startup.system())

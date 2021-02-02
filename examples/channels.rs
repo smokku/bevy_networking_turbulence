@@ -229,10 +229,10 @@ fn handle_packets(
 
                             // New client connected - spawn a ball
                             let mut rng = rand::thread_rng();
-                            let vel_x = rng.gen_range(-0.5..=0.5);
-                            let vel_y = rng.gen_range(-0.5..=0.5);
-                            let pos_x = rng.gen_range(0..BOARD_WIDTH) as f32;
-                            let pos_y = rng.gen_range(0..BOARD_HEIGHT) as f32;
+                            let vel_x = rng.gen_range(-0.5, 0.5);
+                            let vel_y = rng.gen_range(-0.5, 0.5);
+                            let pos_x = rng.gen_range(0, BOARD_WIDTH) as f32;
+                            let pos_y = rng.gen_range(0, BOARD_HEIGHT) as f32;
                             log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
                             commands.spawn((
                                 Ball {

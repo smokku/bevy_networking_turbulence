@@ -20,7 +20,11 @@ exclude = [".git*"]
 [features]
 default = ["use-udp"]
 use-udp = ["naia-server-socket/use-udp"]
-use-webrtc = ["naia-server-socket/use-webrtc", "naia-client-socket/wbindgen"]
+use-webrtc = [
+    "naia-server-socket/use-webrtc",
+    "naia-client-socket/wbindgen",
+    "rand/wasm-bindgen"
+]
 
 [dependencies]
 bevy_app = "0.4"
@@ -47,7 +51,7 @@ futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 bevy = { version = "0.4", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 simple_logger = "1"
-rand = "0.8"
+rand = "0.7.3"
 console_error_panic_hook = "0.1"
 console_log = "0.2"
 

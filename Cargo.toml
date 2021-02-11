@@ -55,6 +55,9 @@ rand = "0.7.3"
 console_error_panic_hook = "0.1"
 console_log = "0.2"
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+bevy_webgl2 = "0.4.3"
+
 [[example]]
 name = "channels"
 path = "examples/channels.rs"

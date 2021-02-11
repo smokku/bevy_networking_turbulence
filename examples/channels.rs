@@ -10,6 +10,8 @@ use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
 };
+#[cfg(target_arch = "wasm32")]
+use bevy_webgl2::WebGL2Plugin;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
@@ -54,17 +56,27 @@ impl Plugin for BallsExample {
             .add_system_to_stage(stage::POST_UPDATE, network_broadcast_system.system())
         } else {
             // Client
-            app.add_resource(WindowDescriptor {
-                width: BOARD_WIDTH as f32,
-                height: BOARD_HEIGHT as f32,
-                ..Default::default()
-            })
-            .add_plugins(DefaultPlugins)
-            .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
-            .add_startup_system(client_setup.system())
-            .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
-            .add_resource(ServerIds::default())
-            .add_system(ball_control_system.system())
+            cfg_if::cfg_if! {
+                if #[cfg(target_arch = "wasm32")] {
+                    app.add_resource(WindowDescriptor {
+                        width: BOARD_WIDTH as f32,
+                        height: BOARD_HEIGHT as f32,
+                        ..Default::default()
+                    })
+                    .add_plugins(DefaultPlugins)
+                    .add_plugin(WebGL2Plugin)
+                    .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
+                    .add_startup_system(client_setup.system())
+                    .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
+                    .add_resource(ServerIds::default())
+                    .add_system(ball_control_system.system())
+                }
+                else {
+                    panic!("compiler wut")
+                }
+            }
+
+            
         }
         .add_resource(args)
         .add_plugin(NetworkingPlugin::default())
@@ -107,9 +119,9 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
             panic!("listen not supported on wasm")
         }
         else {
-    let mut socket_address: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    log::info!("Starting server");
-    net.listen(socket_address);
+            let mut socket_address: SocketAddr = "127.0.0.1:14192".parse().unwrap();
+            log::info!("Starting server");
+            net.listen(socket_address);
         }
     }
 }
@@ -119,7 +131,7 @@ fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
     camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
     commands.spawn(camera);
 
-    let mut socket_address: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let mut socket_address: SocketAddr = "127.0.0.1:14192".parse().unwrap();
     log::info!("Starting client");
     net.connect(socket_address);
 }

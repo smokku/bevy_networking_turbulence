@@ -53,9 +53,19 @@ On one terminal run:
 
     $ env RUST_LOG=debug cargo run --example channels --features use-udp,bevy/default -- --server
 
+(wasm)
+
+    $ env RUST_LOG=debug cargo run --example channels --no-default-features --features use-webrtc,bevy/render -- --server
+
 On second terminal run:
 
     $ env RUST_LOG=warn cargo run --example channels --features use-udp,bevy/default -- --client
+
+(wasm)
+
+    $ cargo build --example channels --target wasm32-unknown-unknown --no-default-features --features use-webrtc,bevy/render
+    $ wasm-bindgen --out-dir target --target web target/wasm32-unknown-unknown/debug/examples/channels.wasm
+    $ basic-http-server .
 
 On third (and fourth, and more...) terminal run:
 

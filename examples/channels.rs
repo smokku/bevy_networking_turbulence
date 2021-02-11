@@ -102,11 +102,16 @@ fn ball_control_system(mut net: ResMut<NetworkResource>, keyboard_input: Res<Inp
 }
 
 fn server_setup(mut net: ResMut<NetworkResource>) {
-    let ip_address =
-        bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
-    let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            panic!("listen not supported on wasm")
+        }
+        else {
+    let mut socket_address: SocketAddr = "127.0.0.1:0".parse().unwrap();
     log::info!("Starting server");
     net.listen(socket_address);
+        }
+    }
 }
 
 fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
@@ -114,9 +119,7 @@ fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
     camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
     commands.spawn(camera);
 
-    let ip_address =
-        bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
-    let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+    let mut socket_address: SocketAddr = "127.0.0.1:0".parse().unwrap();
     log::info!("Starting client");
     net.connect(socket_address);
 }

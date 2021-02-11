@@ -58,4 +58,4 @@ console_log = "0.2"
 [[example]]
 name = "channels"
 path = "examples/channels.rs"
-required-features = ["bevy/default"]
+required-features = ["bevy/render"]

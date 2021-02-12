@@ -63,3 +63,8 @@ On third (and fourth, and more...) terminal run:
 
 You can focus any of client windows and use `Arrow-Left`/`Arrow-Right` cursor keys to change "ball" trajectory.
 Observe your controlled ball gets synchronized to all other clients.
+
+#### WASM with Graphics and Channels networking
+
+Due to additional dependencies required, we've decided to keep the browser based graphical channels example in a separate repository.
+See https://github.com/ostwilkens/arugio project. It evolved a bit from the simple square balls example and may serve as a basis of your game.

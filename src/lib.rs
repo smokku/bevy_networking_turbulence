@@ -104,7 +104,7 @@ unsafe impl Send for NetworkResource {}
 unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
-    fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>) -> Self {
+    pub fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>) -> Self {
         let runtime = TaskPoolRuntime::new(task_pool.clone());
         let packet_pool =
             MuxPacketPool::new(BufferPacketPool::new(SimpleBufferPool(MAX_PACKET_LEN)));

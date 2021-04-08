@@ -79,8 +79,7 @@ fn handle_packets(
     time: Res<Time>,
     network_events: Res<Events<NetworkEvent>>,
 ) {
-    let mut reader = network_events.get_reader();
-    for event in reader.iter(&network_events) {
+    for event in network_events.get_reader().iter(&network_events) {
         match event {
             NetworkEvent::Packet(handle, packet) => {
                 let message = String::from_utf8_lossy(packet);

@@ -5,7 +5,7 @@
   via reliable channel client->server
 */
 
-use bevy::{app::ScheduleRunnerSettings, prelude::*, render::camera::WindowOrigin};
+use bevy::{app::ScheduleRunnerSettings, prelude::*};
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
@@ -112,7 +112,7 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
 fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
     let mut camera = Camera2dBundle::default();
     camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
-    commands.spawn(camera);
+    commands.spawn().insert(camera);
 
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");

@@ -1,6 +1,6 @@
 use bevy_app::{AppBuilder, Events, Plugin};
 use bevy_ecs::prelude::*;
-use bevy_tasks::TaskPool;
+use bevy_tasks::{IoTaskPool, TaskPool};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -47,8 +47,15 @@ pub struct NetworkingPlugin {
 
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut AppBuilder) {
+        let task_pool = app
+            .world()
+            .get_resource::<IoTaskPool>()
+            .expect("`IoTaskPool` resource not found.")
+            .0
+            .clone();
+
         app.insert_resource(NetworkResource::new(
-            TaskPool::new(),
+            task_pool,
             self.link_conditioner.clone(),
         ))
         .add_event::<NetworkEvent>()

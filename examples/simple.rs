@@ -1,5 +1,5 @@
 use bevy::{
-    app::{App, Events, ScheduleRunnerSettings},
+    app::{App, EventReader, ScheduleRunnerSettings},
     core::Time,
     ecs::prelude::*,
     MinimalPlugins,
@@ -77,9 +77,9 @@ fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Arg
 fn handle_packets(
     mut net: ResMut<NetworkResource>,
     time: Res<Time>,
-    network_events: Res<Events<NetworkEvent>>,
+    mut reader: EventReader<NetworkEvent>,
 ) {
-    for event in network_events.get_reader().iter(&network_events) {
+    for event in reader.iter() {
         match event {
             NetworkEvent::Packet(handle, packet) => {
                 let message = String::from_utf8_lossy(packet);

@@ -28,17 +28,16 @@ fn main() {
 
     App::build()
         // minimal plugins necessary for timers + headless loop
-        .add_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
+        .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))
         .add_plugins(MinimalPlugins)
         // The NetworkingPlugin
         .add_plugin(NetworkingPlugin::default())
         // Our networking
-        .add_resource(parse_args())
+        .insert_resource(parse_args())
         .add_startup_system(startup.system())
         .add_system(send_packets.system())
-        .init_resource::<NetworkReader>()
         .add_system(handle_packets.system())
         .run();
 }
@@ -76,18 +75,12 @@ fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Arg
     }
 }
 
-#[derive(Default)]
-struct NetworkReader {
-    network_events: EventReader<NetworkEvent>,
-}
-
 fn handle_packets(
     mut net: ResMut<NetworkResource>,
     time: Res<Time>,
-    mut state: ResMut<NetworkReader>,
-    network_events: Res<Events<NetworkEvent>>,
+    mut network_events_reader: EventReader<NetworkEvent>,
 ) {
-    for event in state.network_events.iter(&network_events) {
+    for event in network_events_reader.iter() {
         match event {
             NetworkEvent::Packet(handle, packet) => {
                 let message = String::from_utf8_lossy(packet);

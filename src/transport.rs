@@ -58,6 +58,7 @@ pub struct ServerConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[allow(dead_code)]
     channels_task: Option<Task<()>>,
 }
 
@@ -150,6 +151,7 @@ pub struct ClientConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[allow(dead_code)]
     #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
 }
@@ -186,10 +188,7 @@ impl Connection for ClientConnection {
 
     fn receive(&mut self) -> Option<Result<Packet, Box<dyn Error + Send>>> {
         match self.socket.receive() {
-            Ok(event) => match event {
-                Some(packet) => Some(Ok(Packet::copy_from_slice(packet.payload()))),
-                None => None,
-            },
+            Ok(event) => event.map(|event| Ok(Packet::copy_from_slice(event.payload()))),
             Err(err) => Some(Err(Box::new(err))),
         }
     }

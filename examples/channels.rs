@@ -5,7 +5,7 @@
   via reliable channel client->server
 */
 
-use bevy::{app::ScheduleRunnerSettings, prelude::*};
+use bevy::{app::ScheduleRunnerSettings, prelude::*, render::camera::WindowOrigin};
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
@@ -43,33 +43,32 @@ impl Plugin for BallsExample {
         let args = parse_args();
         if args.is_server {
             // Server
-            app.add_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
+            app.insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
                 1.0 / 60.0,
             )))
             .add_plugins(MinimalPlugins)
             .add_startup_system(server_setup.system())
             .add_system(ball_movement_system.system())
-            .add_resource(NetworkBroadcast { frame: 0 })
-            .add_system_to_stage(stage::PRE_UPDATE, handle_messages_server.system())
-            .add_system_to_stage(stage::POST_UPDATE, network_broadcast_system.system())
+            .insert_resource(NetworkBroadcast { frame: 0 })
+            .add_system_to_stage(CoreStage::PreUpdate, handle_messages_server.system())
+            .add_system_to_stage(CoreStage::PostUpdate, network_broadcast_system.system())
         } else {
             // Client
-            app.add_resource(WindowDescriptor {
+            app.insert_resource(WindowDescriptor {
                 width: BOARD_WIDTH as f32,
                 height: BOARD_HEIGHT as f32,
                 ..Default::default()
             })
             .add_plugins(DefaultPlugins)
-            .add_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
+            .insert_resource(ClearColor(Color::rgb(0.3, 0.3, 0.3)))
             .add_startup_system(client_setup.system())
-            .add_system_to_stage(stage::PRE_UPDATE, handle_messages_client.system())
-            .add_resource(ServerIds::default())
+            .add_system_to_stage(CoreStage::PreUpdate, handle_messages_client.system())
+            .insert_resource(ServerIds::default())
             .add_system(ball_control_system.system())
         }
-        .add_resource(args)
+        .insert_resource(args)
         .add_plugin(NetworkingPlugin::default())
         .add_startup_system(network_setup.system())
-        .add_resource(NetworkReader::default())
         .add_system(handle_packets.system());
     }
 }
@@ -109,10 +108,10 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
     net.listen(socket_address);
 }
 
-fn client_setup(commands: &mut Commands, mut net: ResMut<NetworkResource>) {
-    let mut camera = Camera2dBundle::default();
+fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
+    let mut camera = OrthographicCameraBundle::new_2d();
     camera.orthographic_projection.window_origin = WindowOrigin::BottomLeft;
-    commands.spawn().insert(camera);
+    commands.spawn_bundle(camera);
 
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
@@ -203,19 +202,13 @@ fn network_broadcast_system(
     net.broadcast_message(message);
 }
 
-#[derive(Default)]
-struct NetworkReader {
-    network_events: EventReader<NetworkEvent>,
-}
-
 fn handle_packets(
-    commands: &mut Commands,
+    mut commands: Commands,
     mut net: ResMut<NetworkResource>,
-    mut state: ResMut<NetworkReader>,
     args: Res<Args>,
-    network_events: Res<Events<NetworkEvent>>,
+    mut network_events: EventReader<NetworkEvent>,
 ) {
-    for event in state.network_events.iter(&network_events) {
+    for event in network_events.iter(){
         match event {
             NetworkEvent::Connected(handle) => match net.connections.get_mut(handle) {
                 Some(connection) => {
@@ -234,7 +227,7 @@ fn handle_packets(
                             let pos_x = rng.gen_range(0, BOARD_WIDTH) as f32;
                             let pos_y = rng.gen_range(0, BOARD_HEIGHT) as f32;
                             log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
-                            commands.spawn((
+                            commands.spawn_bundle((
                                 Ball {
                                     velocity: 400.0 * Vec3::new(vel_x, vel_y, 0.0).normalize(),
                                 },
@@ -308,7 +301,7 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&m
 type ServerIds = HashMap<u32, (u32, u32)>;
 
 fn handle_messages_client(
-    commands: &mut Commands,
+    mut commands: Commands,
     mut net: ResMut<NetworkResource>,
     mut server_ids: ResMut<ServerIds>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -368,7 +361,7 @@ fn handle_messages_client(
         for (id, (frame, velocity, translation)) in to_spawn.iter() {
             log::info!("Spawning {} @{}", id, frame);
             let entity = commands
-                .spawn(SpriteBundle {
+                .spawn_bundle(SpriteBundle {
                     material: materials.add(
                         Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)).into(),
                     ),
@@ -376,12 +369,10 @@ fn handle_messages_client(
                     sprite: Sprite::new(Vec2::new(30.0, 30.0)),
                     ..Default::default()
                 })
-                .with(Ball {
+                .insert(Ball {
                     velocity: *velocity,
                 })
-                .with(Pawn { controller: *id })
-                .current_entity()
-                .unwrap();
+                .insert(Pawn { controller: *id }).id();
             server_ids.insert(entity.id(), (*id, *frame));
         }
     }

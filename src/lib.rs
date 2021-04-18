@@ -26,7 +26,7 @@ use turbulence::{
     buffer::BufferPacketPool,
     message_channels::ChannelMessage,
     packet::{Packet as PoolPacket, PacketPool, MAX_PACKET_LEN},
-    packet_multiplexer::MuxPacketPool,
+    packet_multiplexer::{IncomingTrySendError, MuxPacketPool},
 };
 pub use turbulence::{
     message_channels::{MessageChannelMode, MessageChannelSettings},
@@ -35,7 +35,10 @@ pub use turbulence::{
 
 mod channels;
 mod transport;
-use self::channels::{SimpleBufferPool, TaskPoolRuntime};
+use self::{
+    channels::{SimpleBufferPool, TaskPoolRuntime},
+    transport::MultiplexedPacket,
+};
 pub use transport::{Connection, ConnectionChannelsBuilder, Packet};
 
 pub type ConnectionHandle = u32;
@@ -85,7 +88,8 @@ pub struct NetworkResource {
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)] // FIXME: remove this struct?
 struct ServerListener {
-    receiver_task: bevy_tasks::Task<()>, // needed to keep receiver_task alive
+    receiver_task: bevy_tasks::Task<()>,
+    // needed to keep receiver_task alive
     sender: ServerSender,
     socket_address: SocketAddr,
 }
@@ -95,11 +99,17 @@ pub enum NetworkEvent {
     Connected(ConnectionHandle),
     Disconnected(ConnectionHandle),
     Packet(ConnectionHandle, Packet),
-    // Error(NetworkError),
+    Error(NetworkError),
+}
+
+pub enum NetworkError {
+    TurbulenceChannelError(IncomingTrySendError<MultiplexedPacket>),
+    IoError(Box<dyn Error + Send>),
 }
 
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for NetworkResource {}
+
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for NetworkResource {}
 
@@ -355,7 +365,9 @@ pub fn receive_packets(
                             }
                             Err(err) => {
                                 log::error!("Channel Incoming Error: {}", err);
-                                // FIXME:error_events.send(error);
+                                network_events.send(NetworkEvent::Error(
+                                    NetworkError::TurbulenceChannelError(err),
+                                ));
                             }
                         }
                     } else {
@@ -365,7 +377,7 @@ pub fn receive_packets(
                 }
                 Err(err) => {
                     log::error!("Receive Error: {}", err);
-                    // FIXME:error_events.send(error);
+                    network_events.send(NetworkEvent::Error(NetworkError::IoError(err)));
                 }
             }
         }

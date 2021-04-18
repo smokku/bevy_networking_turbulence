@@ -25,7 +25,7 @@ use futures_lite::StreamExt;
 use super::channels::{SimpleBufferPool, TaskPoolRuntime};
 
 pub type Packet = Bytes;
-type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as PacketPool>::Packet>;
+pub type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as PacketPool>::Packet>;
 pub type ConnectionChannelsBuilder =
     MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
 

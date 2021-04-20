@@ -56,3 +56,8 @@ console_log = "0.2"
 name = "channels"
 path = "examples/channels.rs"
 required-features = ["bevy/default"]
+
+[patch.crates-io]
+# TODO: watch https://github.com/naia-rs/naia-socket/pull/29.
+naia-client-socket = { git = "https://github.com/mvlabat/naia-socket.git" }
+naia-server-socket = { git = "https://github.com/mvlabat/naia-socket.git" }

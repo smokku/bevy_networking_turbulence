@@ -31,7 +31,7 @@ bevy_app = "0.5"
 bevy_ecs = "0.5"
 bevy_tasks = "0.5"
 turbulence = "0.3"
-naia-client-socket = { version = "0.5", features = ["multithread"] }
+naia-client-socket = { version = "0.6", features = ["multithread"] }
 bytes = "1.0"
 log = "0.4"
 futures-lite = "1.11"
@@ -42,7 +42,7 @@ futures = "0.3"
 futures-timer = "3.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-naia-server-socket = "0.4"
+naia-server-socket = "0.5"
 
 [dev-dependencies]
 bevy = { version = "0.5", default-features = false }

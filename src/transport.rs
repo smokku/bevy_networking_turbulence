@@ -32,7 +32,7 @@ pub type ConnectionChannelsBuilder =
 pub trait Connection: Send + Sync {
     fn remote_address(&self) -> Option<SocketAddr>;
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>>;
+    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>>;
 
     fn receive(&mut self) -> Option<Result<Packet, Box<dyn Error + Send>>>;
 
@@ -88,7 +88,7 @@ impl Connection for ServerConnection {
         Some(self.client_address)
     }
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>> {
+    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
         block_on(
             self.sender
                 .as_mut()
@@ -178,7 +178,7 @@ impl Connection for ClientConnection {
         None
     }
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Send>> {
+    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.sender
             .as_mut()
             .unwrap()

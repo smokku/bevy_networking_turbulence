@@ -4,13 +4,14 @@ use bevy_tasks::{IoTaskPool, TaskPool};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use log::debug;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
     collections::HashMap,
     error::Error,
     fmt::Debug,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr, UdpSocket},
     sync::{atomic, Arc, Mutex},
 };
 
@@ -129,7 +130,19 @@ impl NetworkResource {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self, socket_address: SocketAddr) {
         let mut server_socket = {
-            let socket = futures_lite::future::block_on(ServerSocket::listen(socket_address));
+            let webrtc_listen_addr = {
+                let webrtc_listen_ip: IpAddr = socket_address.ip();
+                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
+                    .expect("no available port");
+
+                SocketAddr::new(webrtc_listen_ip, webrtc_listen_port)
+            };
+
+            let socket = futures_lite::future::block_on(ServerSocket::listen(
+                socket_address,
+                webrtc_listen_addr,
+                webrtc_listen_addr,
+            ));
 
             if let Some(ref conditioner) = self.link_conditioner {
                 socket.with_link_conditioner(conditioner)
@@ -229,7 +242,7 @@ impl NetworkResource {
         &mut self,
         handle: ConnectionHandle,
         payload: Packet,
-    ) -> Result<(), Box<dyn Error + Send>> {
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
         match self.connections.get_mut(&handle) {
             Some(connection) => connection.send(payload),
             None => Err(Box::new(std::io::Error::new(
@@ -352,5 +365,21 @@ pub fn receive_packets(
                 }
             }
         }
+    }
+}
+
+fn get_available_port(ip: &str) -> Option<u16> {
+    (8000..9000).find(|port| port_is_available(ip, *port))
+}
+
+fn port_is_available(ip: &str, port: u16) -> bool {
+    debug!("Trying to bind to {} {}", ip, port);
+
+    match UdpSocket::bind((ip, port)) {
+        Ok(_) => {
+            debug!("Was able to bind to {} {}", ip, port);
+            true
+        }
+        Err(_) => false,
     }
 }

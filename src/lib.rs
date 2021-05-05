@@ -4,7 +4,6 @@ use bevy_tasks::{IoTaskPool, TaskPool};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use log::debug;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -368,16 +367,18 @@ pub fn receive_packets(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_available_port(ip: &str) -> Option<u16> {
     (8000..9000).find(|port| port_is_available(ip, *port))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn port_is_available(ip: &str, port: u16) -> bool {
-    debug!("Trying to bind to {} {}", ip, port);
+    log::debug!("Trying to bind to {} {}", ip, port);
 
     match UdpSocket::bind((ip, port)) {
         Ok(_) => {
-            debug!("Was able to bind to {} {}", ip, port);
+            log::debug!("Was able to bind to {} {}", ip, port);
             true
         }
         Err(_) => false,

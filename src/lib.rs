@@ -4,6 +4,7 @@ use bevy_tasks::{IoTaskPool, TaskPool};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use log::debug;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -13,7 +14,6 @@ use std::{
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::{atomic, Arc, Mutex},
 };
-use log::debug;
 
 use naia_client_socket::ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
@@ -129,16 +129,20 @@ impl NetworkResource {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(&mut self, socket_address: SocketAddr) {
-            let mut server_socket = {
-
+        let mut server_socket = {
             let webrtc_listen_addr = {
                 let webrtc_listen_ip: IpAddr = socket_address.ip();
-                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str()).expect("no available port");
+                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
+                    .expect("no available port");
 
                 SocketAddr::new(webrtc_listen_ip, webrtc_listen_port)
             };
 
-            let socket = futures_lite::future::block_on(ServerSocket::listen(socket_address, webrtc_listen_addr, webrtc_listen_addr));
+            let socket = futures_lite::future::block_on(ServerSocket::listen(
+                socket_address,
+                webrtc_listen_addr,
+                webrtc_listen_addr,
+            ));
 
             if let Some(ref conditioner) = self.link_conditioner {
                 socket.with_link_conditioner(conditioner)
@@ -363,7 +367,6 @@ pub fn receive_packets(
         }
     }
 }
-
 
 fn get_available_port(ip: &str) -> Option<u16> {
     (8000..9000).find(|port| port_is_available(ip, *port))

@@ -10,9 +10,12 @@ use std::{
     collections::HashMap,
     error::Error,
     fmt::Debug,
-    net::{IpAddr, SocketAddr, UdpSocket},
+    net::{SocketAddr, UdpSocket},
     sync::{atomic, Arc, Mutex},
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::net::IpAddr;
 
 use naia_client_socket::ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
@@ -126,21 +129,43 @@ impl NetworkResource {
         }
     }
 
+    /// The 3 listening addresses aren't strictly necessary, unless you have some configuration issues with public and private addresses that need to be connected to.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn listen(&mut self, socket_address: SocketAddr) {
-        let mut server_socket = {
-            let webrtc_listen_addr = {
-                let webrtc_listen_ip: IpAddr = socket_address.ip();
+    pub fn listen(
+        &mut self,
+        socket_address: SocketAddr,
+        mut webrtc_listen_addr: Option<SocketAddr>,
+        mut public_webrtc_addr: Option<SocketAddr>,
+    ) {
+        let webrtc_listen_ip: IpAddr = socket_address.ip();
+
+        webrtc_listen_addr = {
+            if webrtc_listen_addr.is_none() {
                 let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
-                    .expect("no available port");
+                    .expect("No available port");
 
-                SocketAddr::new(webrtc_listen_ip, webrtc_listen_port)
-            };
+                Some(SocketAddr::new(webrtc_listen_ip, webrtc_listen_port))
+            } else {
+                webrtc_listen_addr
+            }
+        };
 
+        public_webrtc_addr = {
+            if public_webrtc_addr.is_none() {
+                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
+                    .expect("No available port");
+
+                Some(SocketAddr::new(webrtc_listen_ip, webrtc_listen_port))
+            } else {
+                public_webrtc_addr
+            }
+        };
+
+        let mut server_socket = {
             let socket = futures_lite::future::block_on(ServerSocket::listen(
                 socket_address,
-                webrtc_listen_addr,
-                webrtc_listen_addr,
+                webrtc_listen_addr.unwrap(),
+                public_webrtc_addr.unwrap(),
             ));
 
             if let Some(ref conditioner) = self.link_conditioner {

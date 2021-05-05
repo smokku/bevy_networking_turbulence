@@ -10,12 +10,9 @@ use std::{
     collections::HashMap,
     error::Error,
     fmt::Debug,
-    net::{SocketAddr, UdpSocket},
+    net::SocketAddr,
     sync::{atomic, Arc, Mutex},
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use std::net::IpAddr;
 
 use naia_client_socket::ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
@@ -134,38 +131,14 @@ impl NetworkResource {
     pub fn listen(
         &mut self,
         socket_address: SocketAddr,
-        mut webrtc_listen_addr: Option<SocketAddr>,
-        mut public_webrtc_addr: Option<SocketAddr>,
+        webrtc_listen_addr: SocketAddr,
+        public_webrtc_addr: SocketAddr,
     ) {
-        let webrtc_listen_ip: IpAddr = socket_address.ip();
-
-        webrtc_listen_addr = {
-            if webrtc_listen_addr.is_none() {
-                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
-                    .expect("No available port");
-
-                Some(SocketAddr::new(webrtc_listen_ip, webrtc_listen_port))
-            } else {
-                webrtc_listen_addr
-            }
-        };
-
-        public_webrtc_addr = {
-            if public_webrtc_addr.is_none() {
-                let webrtc_listen_port = get_available_port(webrtc_listen_ip.to_string().as_str())
-                    .expect("No available port");
-
-                Some(SocketAddr::new(webrtc_listen_ip, webrtc_listen_port))
-            } else {
-                public_webrtc_addr
-            }
-        };
-
         let mut server_socket = {
             let socket = futures_lite::future::block_on(ServerSocket::listen(
                 socket_address,
-                webrtc_listen_addr.unwrap(),
-                public_webrtc_addr.unwrap(),
+                webrtc_listen_addr,
+                public_webrtc_addr,
             ));
 
             if let Some(ref conditioner) = self.link_conditioner {
@@ -389,23 +362,5 @@ pub fn receive_packets(
                 }
             }
         }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_available_port(ip: &str) -> Option<u16> {
-    (8000..9000).find(|port| port_is_available(ip, *port))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn port_is_available(ip: &str, port: u16) -> bool {
-    log::debug!("Trying to bind to {} {}", ip, port);
-
-    match UdpSocket::bind((ip, port)) {
-        Ok(_) => {
-            log::debug!("Was able to bind to {} {}", ip, port);
-            true
-        }
-        Err(_) => false,
     }
 }

@@ -126,7 +126,8 @@ impl NetworkResource {
         }
     }
 
-    /// The 3 listening addresses aren't strictly necessary, unless you have some configuration issues with public and private addresses that need to be connected to.
+    /// The 3 listening addresses aren't strictly necessary, you can put the same IP address with a different port for the socket address; Unless you have some configuration issues with public and private addresses that need to be connected to.
+    /// They also aren't necessary if you're using UDP, so you can put anything if that's the case.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn listen(
         &mut self,

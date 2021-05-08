@@ -105,7 +105,7 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
     log::info!("Starting server");
-    net.listen(socket_address);
+    net.listen(socket_address, None, None);
 }
 
 fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
@@ -208,7 +208,7 @@ fn handle_packets(
     args: Res<Args>,
     mut network_events: EventReader<NetworkEvent>,
 ) {
-    for event in network_events.iter(){
+    for event in network_events.iter() {
         match event {
             NetworkEvent::Connected(handle) => match net.connections.get_mut(handle) {
                 Some(connection) => {
@@ -372,7 +372,8 @@ fn handle_messages_client(
                 .insert(Ball {
                     velocity: *velocity,
                 })
-                .insert(Pawn { controller: *id }).id();
+                .insert(Pawn { controller: *id })
+                .id();
             server_ids.insert(entity.id(), (*id, *frame));
         }
     }

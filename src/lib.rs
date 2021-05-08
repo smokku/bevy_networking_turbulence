@@ -149,7 +149,7 @@ impl NetworkResource {
     ) {
         let mut server_socket = {
             let webrtc_listen_address = webrtc_listen_address.unwrap_or_else(|| {
-                let mut listen_addr = socket_address.clone();
+                let mut listen_addr = socket_address;
                 listen_addr.set_port(socket_address.port() + 1);
                 listen_addr
             });

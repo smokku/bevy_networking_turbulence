@@ -192,10 +192,7 @@ impl Connection for ClientConnection {
 
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>> {
         match self.socket.receive() {
-            Ok(event) => match event {
-                Some(packet) => Some(Ok(Packet::copy_from_slice(packet.payload()))),
-                None => None,
-            },
+            Ok(event) => event.map(|packet| Ok(Packet::copy_from_slice(packet.payload()))),
             Err(err) => Some(Err(NetworkError::IoError(Box::new(err)))),
         }
     }

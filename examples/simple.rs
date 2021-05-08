@@ -45,24 +45,26 @@ fn main() {
 fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
-            // FIXME: set this address to your local machine
-            let mut socket_address: SocketAddr = "192.168.1.20:0".parse().unwrap();
-            socket_address.set_port(SERVER_PORT);
+            // set the following address to your server address (i.e. local machine)
+            // and remove compile_error! line
+            let mut server_address: SocketAddr = "192.168.1.1:0".parse().unwrap();
+            compile_error!("You need to set server_address.");
+            server_address.set_port(SERVER_PORT);
         } else {
             let ip_address =
                 bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
-            let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
+            let server_address = SocketAddr::new(ip_address, SERVER_PORT);
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
         log::info!("Starting server");
-        net.listen(socket_address, None, None);
+        net.listen(server_address, None, None);
     }
     if !args.is_server {
         log::info!("Starting client");
-        net.connect(socket_address);
+        net.connect(server_address);
     }
 }
 

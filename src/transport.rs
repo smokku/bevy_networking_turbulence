@@ -58,6 +58,7 @@ pub struct ServerConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
 }
 

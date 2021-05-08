@@ -2,9 +2,9 @@ name: Rust CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,83 +13,85 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Stable with rustfmt and clippy
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        components: rustfmt, clippy
-    - name: Annotate commit with clippy warnings - UDP
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --no-default-features --features use-udp
-    - name: Annotate commit with clippy warnings - WebRTC
-      uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --no-default-features --features use-webrtc
-    - name: Security audit
-      uses: actions-rs/audit-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --verbose
+      - uses: actions/checkout@v2
+      - name: Stable with rustfmt and clippy
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Annotate commit with clippy warnings - UDP
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --no-default-features --features use-udp
+      - name: Annotate commit with clippy warnings - WebRTC
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --no-default-features --features use-webrtc
+      - name: Security audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose
 
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        target: wasm32-unknown-unknown
-        default: true
+      - uses: actions/checkout@v2
+      - name: Stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          default: true
 
-    - name: Release build - UDP
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --no-default-features --features use-udp
-    - name: Release build - WebRTC
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --no-default-features --features use-webrtc
+      - name: Release build - UDP
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --no-default-features --features use-udp
+      - name: Release build - WebRTC
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --no-default-features --features use-webrtc
 
-    - name: Example 'simple' - UDP
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --example simple --no-default-features --features use-udp
-    - name: Example 'simple' - WebRTC
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --example simple --no-default-features --features use-webrtc
-    - name: Example 'simple' - WASM
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --example simple --target wasm32-unknown-unknown --no-default-features --features use-webrtc
+      - name: Example 'simple' - UDP
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --example simple --no-default-features --features use-udp
+      - name: Example 'simple' - WebRTC
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --example simple --no-default-features --features use-webrtc
+      - name: Patch WASM forced compile_error
+        run: sed -i /compile_error/d examples/simple.rs
+      - name: Example 'simple' - WASM
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --example simple --target wasm32-unknown-unknown --no-default-features --features use-webrtc
 
-    - name: Install Bevy/default dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install pkg-config libx11-dev libasound2-dev libudev-dev
-    - name: Example 'channels' - UDP
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --example channels --no-default-features --features use-udp,bevy/default
-    - name: Example 'channels' - WebRTC
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --example channels --no-default-features --features use-webrtc,bevy/default
+      - name: Install Bevy/default dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install pkg-config libx11-dev libasound2-dev libudev-dev
+      - name: Example 'channels' - UDP
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --example channels --no-default-features --features use-udp,bevy/default
+      - name: Example 'channels' - WebRTC
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --example channels --no-default-features --features use-webrtc,bevy/default

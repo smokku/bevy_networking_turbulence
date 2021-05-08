@@ -132,14 +132,20 @@ impl NetworkResource {
     pub fn listen(
         &mut self,
         socket_address: SocketAddr,
-        webrtc_listen_addr: SocketAddr,
-        public_webrtc_addr: SocketAddr,
+        webrtc_listen_address: Option<SocketAddr>,
+        public_webrtc_address: Option<SocketAddr>,
     ) {
         let mut server_socket = {
+            let webrtc_listen_address = webrtc_listen_address.unwrap_or_else(|| {
+                let mut listen_addr = socket_address.clone();
+                listen_addr.set_port(socket_address.port() + 1);
+                listen_addr
+            });
+            let public_webrtc_address = public_webrtc_address.unwrap_or(webrtc_listen_address);
             let socket = futures_lite::future::block_on(ServerSocket::listen(
                 socket_address,
-                webrtc_listen_addr,
-                public_webrtc_addr,
+                webrtc_listen_address,
+                public_webrtc_address,
             ));
 
             if let Some(ref conditioner) = self.link_conditioner {

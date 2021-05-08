@@ -58,7 +58,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
         log::info!("Starting server");
-        net.listen(socket_address);
+        net.listen(socket_address, None, None);
     }
     if !args.is_server {
         log::info!("Starting client");

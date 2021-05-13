@@ -5,7 +5,11 @@
   via reliable channel client->server
 */
 
-use bevy::{app::ScheduleRunnerSettings, prelude::*, render::camera::WindowOrigin};
+use bevy::{
+    app::{ScheduleRunnerPlugin, ScheduleRunnerSettings},
+    prelude::*,
+    render::camera::WindowOrigin
+};
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
     NetworkResource, NetworkingPlugin, ReliableChannelSettings,
@@ -47,6 +51,7 @@ impl Plugin for BallsExample {
                 1.0 / 60.0,
             )))
             .add_plugins(MinimalPlugins)
+            .add_plugin(ScheduleRunnerPlugin::default())
             .add_startup_system(server_setup.system())
             .add_system(ball_movement_system.system())
             .insert_resource(NetworkBroadcast { frame: 0 })

@@ -61,7 +61,7 @@ impl Plugin for NetworkingPlugin {
         app.insert_resource(NetworkResource::new(
             task_pool,
             self.link_conditioner.clone(),
-            self.message_flushing_strategy.clone(),
+            self.message_flushing_strategy,
         ))
         .add_event::<NetworkEvent>()
         .add_system(receive_packets.system());
@@ -115,7 +115,7 @@ pub enum NetworkError {
 /// Turbulence will coalesce multiple small messages into a single packet when flush is called.
 /// the default is `OnEverySend` - flushing after each message, which bypasses the coalescing.
 /// You probably want to call flush once per tick instead, in your own system.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum MessageFlushingStrategy {
     /// OnEverySend - flush immediately after calling send_message or send_broadcast.
     /// turbulence will never have a chance to coalesce multiple messages into a packet.

@@ -12,7 +12,7 @@ use bevy::{
 };
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
-    NetworkResource, NetworkingPlugin, ReliableChannelSettings,
+    NetworkResource, NetworkingPlugin, ReliableChannelSettings, MessageFlushingStrategy,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -72,9 +72,12 @@ impl Plugin for BallsExample {
             .add_system(ball_control_system.system())
         }
         .insert_resource(args)
-        .add_plugin(NetworkingPlugin::default())
+        // disable auto flushing of messages on send - we send from our own flush_channels system at the
+        // end of each tick.
+        .add_plugin(NetworkingPlugin{message_flushing_strategy: MessageFlushingStrategy::Never, ..Default::default()})
         .add_startup_system(network_setup.system())
-        .add_system(handle_packets.system());
+        .add_system(handle_packets.system())
+        .add_system_to_stage(CoreStage::PostUpdate, flush_channels.system());
     }
 }
 
@@ -123,6 +126,14 @@ fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
     log::info!("Starting client");
     net.connect(socket_address);
+}
+
+fn flush_channels(mut net: ResMut<NetworkResource>) {
+    for (_handle, connection) in net.connections.iter_mut() {
+        let channels = connection.channels().unwrap();
+        channels.flush::<ClientMessage>();
+        channels.flush::<GameStateMessage>();
+    }
 }
 
 fn network_setup(mut net: ResMut<NetworkResource>) {

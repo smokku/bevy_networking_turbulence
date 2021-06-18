@@ -46,6 +46,7 @@ pub type ConnectionHandle = u32;
 #[derive(Default)]
 pub struct NetworkingPlugin {
     pub link_conditioner: Option<LinkConditionerConfig>,
+    pub message_flushing_strategy: MessageFlushingStrategy,
 }
 
 impl Plugin for NetworkingPlugin {
@@ -60,6 +61,7 @@ impl Plugin for NetworkingPlugin {
         app.insert_resource(NetworkResource::new(
             task_pool,
             self.link_conditioner.clone(),
+            self.message_flushing_strategy.clone(),
         ))
         .add_event::<NetworkEvent>()
         .add_system(receive_packets.system());
@@ -81,6 +83,7 @@ pub struct NetworkResource {
     runtime: TaskPoolRuntime,
     packet_pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     channels_builder_fn: Option<Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>>,
+    message_flushing_strategy: MessageFlushingStrategy,
 
     link_conditioner: Option<LinkConditionerConfig>,
 }
@@ -109,6 +112,39 @@ pub enum NetworkError {
     Disconnected,
 }
 
+/// Turbulence will coalesce multiple small messages into a single packet when flush is called.
+/// the default is `OnEverySend` - flushing after each message, which bypasses the coalescing.
+/// You probably want to call flush once per tick instead, in your own system.
+#[derive(Debug, PartialEq, Clone)]
+pub enum MessageFlushingStrategy {
+    /// OnEverySend - flush immediately after calling send_message or send_broadcast.
+    /// turbulence will never have a chance to coalesce multiple messages into a packet.
+    OnEverySend,
+
+    /// Never - you will want a system in (eg) PostUpdate which calls channels.flush for every channel type
+    /// eg:
+    ///
+    /// pub fn flush_channels(mut net: ResMut<NetworkResource>) {
+    ///     for (_handle, connection) in net.connections.iter_mut() {
+    ///         let channels = connection.channels().unwrap();
+    ///         channels.flush::<ClientNetMessage>();
+    ///         channels.flush::<MyOtherMessageType>();
+    ///         channels.flush::<AllMyTypesHere>();
+    ///         ...
+    ///     }
+    /// }
+    /// ...
+    /// builder.add_system_to_stage(CoreStage::PostUpdate, flush_channels.system());
+    ///
+    Never,
+}
+
+impl Default for MessageFlushingStrategy {
+    fn default() -> MessageFlushingStrategy {
+        MessageFlushingStrategy::OnEverySend
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for NetworkResource {}
 
@@ -116,7 +152,7 @@ unsafe impl Send for NetworkResource {}
 unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
-    pub fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>) -> Self {
+    pub fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>, message_flushing_strategy: MessageFlushingStrategy) -> Self {
         let runtime = TaskPoolRuntime::new(task_pool.clone());
         let packet_pool =
             MuxPacketPool::new(BufferPacketPool::new(SimpleBufferPool(MAX_PACKET_LEN)));
@@ -133,6 +169,7 @@ impl NetworkResource {
             runtime,
             packet_pool,
             channels_builder_fn: None,
+            message_flushing_strategy,
 
             link_conditioner,
         }
@@ -311,7 +348,9 @@ impl NetworkResource {
             Some(connection) => {
                 let channels = connection.channels().unwrap();
                 let unsent = channels.send(message);
-                channels.flush::<M>();
+                if self.message_flushing_strategy == MessageFlushingStrategy::OnEverySend {
+                    channels.flush::<M>();
+                }
                 Ok(unsent)
             }
             None => Err(Box::new(std::io::Error::new(
@@ -327,7 +366,9 @@ impl NetworkResource {
         for (handle, connection) in self.connections.iter_mut() {
             let channels = connection.channels().unwrap();
             let result = channels.send(message.clone());
-            channels.flush::<M>();
+            if self.message_flushing_strategy == MessageFlushingStrategy::OnEverySend {
+                channels.flush::<M>();
+            }
             if let Some(msg) = result {
                 log::error!("Failed broadcast to [{}]: {:?}", handle, msg);
             }

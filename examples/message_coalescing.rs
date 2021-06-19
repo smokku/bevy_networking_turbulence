@@ -4,7 +4,7 @@ use bevy::{
     ecs::prelude::*,
     MinimalPlugins,
 };
-// use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
+
 use serde::{Deserialize, Serialize};
 
 use bevy_networking_turbulence::{

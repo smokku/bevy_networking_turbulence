@@ -3,6 +3,7 @@ use bevy_tasks::Task;
 use bevy_tasks::TaskPool;
 use bytes::Bytes;
 use std::{error::Error, net::SocketAddr, sync::{Arc, RwLock}};
+use instant::{Instant, Duration};
 
 use naia_client_socket::{
     ClientSocketTrait, MessageSender as ClientSender, Packet as ClientPacket,
@@ -32,21 +33,58 @@ pub type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as Pa
 pub type ConnectionChannelsBuilder =
     MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct PacketStats {
     pub packets_tx: usize,
     pub packets_rx: usize,
     pub bytes_tx: usize,
     pub bytes_rx: usize,
+    pub last_tx: Option<Instant>,
+    pub last_rx: Option<Instant>,
+    pub epoch: Instant,
 }
+
+impl Default for PacketStats {
+    fn default() -> Self {
+        // With webrtc, we must have already sent packets in bothdirections to establish the connection.
+        // In this case, we populate last_rx/tx with now().
+        //
+        // With plain UDP, we use None. it's possible to "connect" and never see a packet.
+        #[cfg(feature = "use-webrtc")]
+        let last_default = Some(Instant::now());
+        #[cfg(feature = "use-udp")]
+        let last_default = None;
+
+        Self {
+            packets_tx: 0,
+            packets_rx: 0,
+            bytes_tx: 0,
+            bytes_rx: 0,
+            last_tx: last_default,
+            last_rx: last_default,
+            epoch: Instant::now(),
+         }
+    }
+}
+
 impl PacketStats {
     fn add_tx(&mut self, num_bytes: usize) {
         self.packets_tx += 1;
         self.bytes_tx += num_bytes;
+        self.last_tx = Some(Instant::now());
     }
     fn add_rx(&mut self, num_bytes: usize) {
         self.packets_rx += 1;
         self.bytes_rx += num_bytes;
+        self.last_rx = Some(Instant::now());
+    }
+    // returns Duration since last (rx, tx)
+    // calculated as: now - last packet seen, or if no packet seen, the connection epoch.
+    fn idle_durations(&self) -> (Duration, Duration) {
+        let now = Instant::now();
+        let rx = now.duration_since(self.last_rx.unwrap_or(self.epoch));
+        let tx = now.duration_since(self.last_tx.unwrap_or(self.epoch));
+        (rx, tx)
     }
 }
 
@@ -69,6 +107,9 @@ pub trait Connection: Send + Sync {
     fn channels_rx(&mut self) -> Option<&mut IncomingMultiplexedPackets<MultiplexedPacket>>;
 
     fn stats(&self) -> PacketStats;
+
+    /// returns milliseconds since last (rx, tx)
+    fn last_packet_timings(&self) -> (u128, u128);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -125,6 +166,11 @@ impl Connection for ServerConnection {
                 .unwrap()
                 .send(ServerPacket::new(self.client_address, payload.to_vec())),
         )
+    }
+
+    fn last_packet_timings(&self) -> (u128, u128) {
+        let (rx_dur, tx_dur) = self.stats.read().expect("stats lock poisoned").idle_durations();
+        (rx_dur.as_millis(), tx_dur.as_millis())
     }
 
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>> {
@@ -222,6 +268,11 @@ impl Connection for ClientConnection {
 
     fn stats(&self) -> PacketStats {
         self.stats.read().expect("stats lock poisoned").clone()
+    }
+
+    fn last_packet_timings(&self) -> (u128, u128) {
+        let (rx_dur, tx_dur) = self.stats.read().expect("stats lock poisoned").idle_durations();
+        (rx_dur.as_millis(), tx_dur.as_millis())
     }
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {

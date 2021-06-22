@@ -1,9 +1,10 @@
-use bevy_app::{AppBuilder, Events, Plugin};
+use bevy_app::{AppBuilder, Events, Plugin, CoreStage};
 use bevy_ecs::prelude::*;
 use bevy_tasks::{IoTaskPool, TaskPool};
+use bevy_core::{FixedTimestep};
 
 #[cfg(not(target_arch = "wasm32"))]
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender, SendError as CrossbeamSendError};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -43,10 +44,26 @@ pub use transport::{Connection, ConnectionChannelsBuilder, Packet};
 
 pub type ConnectionHandle = u32;
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
+struct SendHeartbeatsStage;
+
 #[derive(Default)]
 pub struct NetworkingPlugin {
     pub link_conditioner: Option<LinkConditionerConfig>,
     pub message_flushing_strategy: MessageFlushingStrategy,
+    /// Disconnect if no packets received in this number of milliseconds
+    pub idle_timeout_ms: Option<usize>,
+    /// Should we automatically send heartbeat packets if no other packets have been sent?
+    /// these are sent silently, and discarded, so you won't see them in your bevy systems.
+    /// if auto_heartbeat_ms elapses, and we haven't sent anything else in that time, we send one.
+    pub auto_heartbeat_ms: Option<usize>,
+    /// FixedTimestep for the `heartbeats_and_timeouts` system which checks for idle connections
+    /// and sends heartbeats. Does not need to be every frame.
+    ///
+    /// The `heartbeats_and_timeouts` system is only added if `idle_timeout_ms` or `auto_heartbeat_ms` are specified.
+    ///
+    /// Default if None: 0.5 secs
+    pub heartbeats_and_timeouts_timestep_in_seconds: Option<f64>,
 }
 
 impl Plugin for NetworkingPlugin {
@@ -62,9 +79,19 @@ impl Plugin for NetworkingPlugin {
             task_pool,
             self.link_conditioner.clone(),
             self.message_flushing_strategy,
+            self.idle_timeout_ms,
+            self.auto_heartbeat_ms,
         ))
         .add_event::<NetworkEvent>()
         .add_system(receive_packets.system());
+        if self.idle_timeout_ms.is_some() || self.auto_heartbeat_ms.is_some() {
+            // heartbeats and timeouts checking/sending only runs infrequently:
+            app.add_stage_after(CoreStage::Update, SendHeartbeatsStage,
+                SystemStage::parallel()
+                .with_run_criteria(FixedTimestep::step(self.heartbeats_and_timeouts_timestep_in_seconds.unwrap_or(0.5)))
+                .with_system(heartbeats_and_timeouts.system())
+            );
+        }
     }
 }
 
@@ -84,6 +111,8 @@ pub struct NetworkResource {
     packet_pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
     channels_builder_fn: Option<Box<dyn Fn(&mut ConnectionChannelsBuilder) + Send + Sync>>,
     message_flushing_strategy: MessageFlushingStrategy,
+    idle_timeout_ms: Option<usize>,
+    auto_heartbeat_ms: Option<usize>,
 
     link_conditioner: Option<LinkConditionerConfig>,
 }
@@ -109,6 +138,8 @@ pub enum NetworkEvent {
 pub enum NetworkError {
     TurbulenceChannelError(IncomingTrySendError<MultiplexedPacket>),
     IoError(Box<dyn Error + Sync + Send>),
+    /// if we haven't seen a packet for the specified timeout
+    MissedHeartbeat,
     Disconnected,
 }
 
@@ -152,7 +183,13 @@ unsafe impl Send for NetworkResource {}
 unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
-    pub fn new(task_pool: TaskPool, link_conditioner: Option<LinkConditionerConfig>, message_flushing_strategy: MessageFlushingStrategy) -> Self {
+    pub fn new( task_pool: TaskPool,
+                link_conditioner: Option<LinkConditionerConfig>,
+                message_flushing_strategy: MessageFlushingStrategy,
+                idle_timeout_ms: Option<usize>,
+                auto_heartbeat_ms: Option<usize>,
+            ) -> Self
+    {
         let runtime = TaskPoolRuntime::new(task_pool.clone());
         let packet_pool =
             MuxPacketPool::new(BufferPacketPool::new(SimpleBufferPool(MAX_PACKET_LEN)));
@@ -170,6 +207,8 @@ impl NetworkResource {
             packet_pool,
             channels_builder_fn: None,
             message_flushing_strategy,
+            idle_timeout_ms,
+            auto_heartbeat_ms,
 
             link_conditioner,
         }
@@ -229,8 +268,8 @@ impl NetworkResource {
                                 channel.send(Ok(Packet::copy_from_slice(packet.payload())))
                             }) {
                             Some(Ok(())) => false,
-                            Some(Err(error)) => {
-                                log::error!("Server Send Error: {}", error);
+                            Some(Err(CrossbeamSendError(_packet))) => {
+                                log::error!("Server can't send to channel, recreating");
                                 // If we can't send to a channel, it's disconnected.
                                 // We need to re-create the channel and re-try sending the message.
                                 true
@@ -311,6 +350,24 @@ impl NetworkResource {
             )));
     }
 
+    // removes handle and connection, but doesn't signal peer in any way.
+    // Peer will eventually do HeartbeatMissed and clean up.
+    // (you should probably use the same idle timeout on server & client)
+    pub fn disconnect(&mut self, handle: ConnectionHandle) {
+        // on wasm32 we can't be a webrtc server, so cleanup is simpler
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                self.connections.remove(&handle);
+            } else {
+                if let Some(removed_connection) = self.connections.remove(&handle) {
+                    if let Some(client_addr) = removed_connection.remote_address() {
+                        self.server_channels.write().expect("server connections lock poisoned").remove(&client_addr);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn send(
         &mut self,
         handle: ConnectionHandle,
@@ -389,6 +446,38 @@ impl NetworkResource {
     }
 }
 
+// check every connection for timeouts.
+// ie. check how long since we last saw a packet.
+pub fn heartbeats_and_timeouts(mut net: ResMut<NetworkResource>, mut network_events: ResMut<Events<NetworkEvent>>) {
+    let mut silent_handles = Vec::new();
+    let mut needs_hb_handles = Vec::new();
+    let idle_limit = net.idle_timeout_ms;
+    let heartbeat_limit = net.auto_heartbeat_ms;
+    for (handle, connection) in net.connections.iter_mut() {
+        let (rx_ms, tx_ms) = connection.last_packet_timings();
+        log::debug!("millis since last rx: {} tx: {}", rx_ms, tx_ms);
+        if idle_limit.is_some() && rx_ms > idle_limit.unwrap() as u128 {
+            // idle-timeout this connection
+            silent_handles.push(*handle);
+        }
+        if heartbeat_limit.is_some() && tx_ms > heartbeat_limit.unwrap() as u128 {
+            // send a heartbeat packet.
+            needs_hb_handles.push(*handle);
+        }
+    }
+    for handle in needs_hb_handles {
+        log::debug!("Sending hearbeat packet on h:{}", handle);
+        net.send(handle, Packet::from_static(transport::HEARTBEAT_PACKET)).unwrap();   
+    }
+    for handle in silent_handles {
+        log::warn!("Idle disconnect for h:{}", handle);
+        // Error doesn't imply Disconnected, so we send both
+        network_events.send(NetworkEvent::Error(handle, NetworkError::MissedHeartbeat));
+        network_events.send(NetworkEvent::Disconnected(handle));
+        net.disconnect(handle);
+    }
+}
+
 pub fn receive_packets(
     mut net: ResMut<NetworkResource>,
     mut network_events: ResMut<Events<NetworkEvent>>,
@@ -415,6 +504,11 @@ pub fn receive_packets(
         while let Some(result) = connection.receive() {
             match result {
                 Ok(packet) => {
+                    if packet == transport::HEARTBEAT_PACKET {
+                        log::debug!("Received heartbeat packet");
+                        // discard without sending a NetworkEvent
+                        continue;
+                    }
                     let message = String::from_utf8_lossy(&packet);
                     log::debug!("Received on [{}] {} RAW: {}", handle, packet.len(), message);
                     if let Some(channels_rx) = connection.channels_rx() {

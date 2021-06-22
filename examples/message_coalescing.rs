@@ -15,7 +15,7 @@ use bevy_networking_turbulence::{
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::*;
+use utils::{MessageCoalescingArgs as Args, parse_message_coalescing_args};
 
 const SERVER_PORT: u16 = 14191;
 const NUM_PINGS: usize = 100;
@@ -45,7 +45,7 @@ fn main() {
         }
     }
 
-    let args = parse_args();
+    let args = parse_message_coalescing_args();
     let mut net_plugin = NetworkingPlugin::default();
     if args.manual_flush {
         net_plugin.message_flushing_strategy = MessageFlushingStrategy::Never;
@@ -72,7 +72,7 @@ fn main() {
         .add_system(handle_messages.system())
         .add_system(ttl_system.system())
         ;
-    if parse_args().manual_flush {
+    if parse_message_coalescing_args().manual_flush {
         app.add_system_to_stage(CoreStage::PostUpdate, flush_channels.system());
     }
     app.run();

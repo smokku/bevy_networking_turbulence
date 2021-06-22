@@ -12,14 +12,14 @@ use bevy::{
 };
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
-    NetworkResource, NetworkingPlugin, ReliableChannelSettings, MessageFlushingStrategy,
+    NetworkResource, NetworkingPlugin, ReliableChannelSettings,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::*;
+use utils::{SimpleArgs as Args, parse_simple_args};
 
 const SERVER_PORT: u16 = 14192;
 const BOARD_WIDTH: u32 = 1000;
@@ -44,7 +44,7 @@ struct BallsExample;
 
 impl Plugin for BallsExample {
     fn build(&self, app: &mut AppBuilder) {
-        let args = parse_args();
+        let args = parse_simple_args();
         if args.is_server {
             // Server
             app.insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(

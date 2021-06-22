@@ -33,6 +33,8 @@ pub type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as Pa
 pub type ConnectionChannelsBuilder =
     MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
 
+pub const HEARTBEAT_PACKET: &[u8] = b"BNT:HEARTBEAT";
+
 #[derive(Debug, Clone)]
 pub struct PacketStats {
     pub packets_tx: usize,
@@ -115,6 +117,7 @@ pub struct ServerConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[allow(dead_code)]
     #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
 }
@@ -230,6 +233,7 @@ pub struct ClientConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[allow(dead_code)]
     #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
 }

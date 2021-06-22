@@ -1,17 +1,24 @@
 use bevy::{
-    app::{App, EventReader, ScheduleRunnerSettings},
-    core::Time,
+    app::{App, EventReader, ScheduleRunnerSettings, CoreStage},
     ecs::prelude::*,
     MinimalPlugins,
+    core::{FixedTimestep},
 };
+
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
 
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::{SimpleArgs as Args, parse_simple_args};
+use utils::{IdleTimeoutArgs as Args, parse_idle_timeout_args};
 
 const SERVER_PORT: u16 = 14191;
+
+#[derive(Debug, Default)]
+struct PingPongCounter {
+    ping_reservoir: usize,
+    pong_reservoir: usize,
+}
 
 fn main() {
     cfg_if::cfg_if! {
@@ -25,22 +32,38 @@ fn main() {
             .expect("A logger was already initialized");
         }
     }
+    let args = parse_idle_timeout_args();
+    log::info!("{:?}", args);
 
-    App::build()
+    let mut net_plugin = NetworkingPlugin::default();
+    net_plugin.idle_timeout_ms = args.idle_timeout_ms;
+    net_plugin.auto_heartbeat_ms = args.auto_heartbeat_ms;
+
+    let ppc = PingPongCounter {
+        ping_reservoir: args.pings,
+        pong_reservoir: args.pongs,
+    };
+
+    let mut app = App::build();
+    app
         // minimal plugins necessary for timers + headless loop
         .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))
+        .insert_resource(ppc)
         .add_plugins(MinimalPlugins)
         // The NetworkingPlugin
-        .add_plugin(NetworkingPlugin::default())
+        .add_plugin(net_plugin)
         // Our networking
-        .insert_resource(parse_simple_args())
+        .insert_resource(args)
         .add_startup_system(startup.system())
-        .add_system(send_packets.system())
-        .add_system(handle_packets.system())
-        .run();
+        .add_system(send_pongs.system())
+        .add_stage_after(CoreStage::Update, "ping_sending_stage",
+            SystemStage::single(send_pings.system()).with_run_criteria(FixedTimestep::step(1.0)))
+        ;
+    app.run();
 }
+
 
 fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     cfg_if::cfg_if! {
@@ -68,17 +91,25 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
 }
 
-fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
-    if !args.is_server {
-        if (time.seconds_since_startup() * 60.) as i64 % 60 == 0 {
-            log::info!("PING");
-            net.broadcast(Packet::from("PING"));
-        }
+fn send_pings(
+    mut net: ResMut<NetworkResource>, 
+    mut ppc: ResMut<PingPongCounter>, 
+) {
+    if ppc.ping_reservoir == 0 {
+        return;
+    }
+
+    ppc.ping_reservoir -= 1;
+    net.broadcast(Packet::from("PING"));
+
+    if ppc.ping_reservoir == 0 {
+        log::info!("(No more pings left to send)");
     }
 }
-fn handle_packets(
+
+fn send_pongs(
     mut net: ResMut<NetworkResource>,
-    time: Res<Time>,
+    mut ppc: ResMut<PingPongCounter>,
     mut reader: EventReader<NetworkEvent>,
 ) {
     for event in reader.iter() {
@@ -87,18 +118,20 @@ fn handle_packets(
                 let message = String::from_utf8_lossy(packet);
                 log::info!("Got packet on [{}]: {}", handle, message);
                 if message == "PING" {
-                    let message = format!("PONG @ {}", time.seconds_since_startup());
-                    match net.send(*handle, Packet::from(message)) {
-                        Ok(()) => {
-                            log::info!("Sent PONG");
+                    if ppc.pong_reservoir > 0 {
+                        ppc.pong_reservoir -= 1;
+                        match net.send(*handle, Packet::from("PONG")) {
+                            Ok(()) => log::info!("Sent PONG"),
+                            Err(error) => log::warn!("PONG send error: {}", error)
                         }
-                        Err(error) => {
-                            log::info!("PONG send error: {}", error);
-                        }
+                    } else {
+                        log::info!("No pongs left to send.");
                     }
                 }
+            },
+            other => {
+                log::info!("Other event: {:?}", other);
             }
-            _ => {}
         }
     }
 }

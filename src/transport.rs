@@ -39,30 +39,23 @@ pub struct PacketStats {
     pub packets_rx: usize,
     pub bytes_tx: usize,
     pub bytes_rx: usize,
-    pub last_tx: Option<Instant>,
-    pub last_rx: Option<Instant>,
-    pub epoch: Instant,
+    pub last_tx: Instant,
+    pub last_rx: Instant,
 }
 
 impl Default for PacketStats {
     fn default() -> Self {
-        // With webrtc, we must have already sent packets in bothdirections to establish the connection.
-        // In this case, we populate last_rx/tx with now().
-        //
-        // With plain UDP, we use None. it's possible to "connect" and never see a packet.
-        #[cfg(feature = "use-webrtc")]
-        let last_default = Some(Instant::now());
-        #[cfg(feature = "use-udp")]
-        let last_default = None;
-
+        // default the last rx/tx to now.
+        // not strictly true in use-udp mode, since we can "connect" without
+        // exchanging packets. but always true for use-webrtc.
+        let now = Instant::now();
         Self {
             packets_tx: 0,
             packets_rx: 0,
             bytes_tx: 0,
             bytes_rx: 0,
-            last_tx: last_default,
-            last_rx: last_default,
-            epoch: Instant::now(),
+            last_tx: now,
+            last_rx: now,
          }
     }
 }
@@ -71,19 +64,18 @@ impl PacketStats {
     fn add_tx(&mut self, num_bytes: usize) {
         self.packets_tx += 1;
         self.bytes_tx += num_bytes;
-        self.last_tx = Some(Instant::now());
+        self.last_tx = Instant::now();
     }
     fn add_rx(&mut self, num_bytes: usize) {
         self.packets_rx += 1;
         self.bytes_rx += num_bytes;
-        self.last_rx = Some(Instant::now());
+        self.last_rx = Instant::now();
     }
     // returns Duration since last (rx, tx)
-    // calculated as: now - last packet seen, or if no packet seen, the connection epoch.
     fn idle_durations(&self) -> (Duration, Duration) {
         let now = Instant::now();
-        let rx = now.duration_since(self.last_rx.unwrap_or(self.epoch));
-        let tx = now.duration_since(self.last_tx.unwrap_or(self.epoch));
+        let rx = now.duration_since(self.last_rx);
+        let tx = now.duration_since(self.last_tx);
         (rx, tx)
     }
 }

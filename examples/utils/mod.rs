@@ -67,7 +67,7 @@ pub fn parse_message_coalescing_args() -> MessageCoalescingArgs {
 
 #[allow(dead_code)]
 pub fn parse_idle_timeout_args() -> IdleTimeoutArgs {
-    let matches = ClapApp::new("")
+    let matches = ClapApp::new(exe_name())
         .about("Idle timeout example")
         .args(server_or_client_args().as_slice())
         .args(pings_pongs_args().as_slice())

@@ -50,7 +50,7 @@ pub fn parse_simple_args() -> SimpleArgs {
 
 #[allow(dead_code)]
 pub fn parse_message_coalescing_args() -> MessageCoalescingArgs {
-    let matches = ClapApp::new("")
+    let matches = ClapApp::new(exe_name())
         .about("Message coalescing example")
         .args(server_or_client_args().as_slice())
         .args(flushing_strategy_args().as_slice())

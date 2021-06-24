@@ -33,7 +33,6 @@ pub type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as Pa
 pub type ConnectionChannelsBuilder =
     MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
 
-
 #[derive(Debug, Clone)]
 pub struct PacketStats {
     pub packets_tx: usize,

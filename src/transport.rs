@@ -115,6 +115,9 @@ pub struct ServerConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    // channels_task is used to keep spawned Tasks in-scope so they are not dropped.
+    // we set it, but never read from it, which the compiler warns about.
+    // so we use allow(dead_code), even though it's needed for reference keeping.
     #[allow(dead_code)]
     #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,
@@ -231,6 +234,9 @@ pub struct ClientConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    // channels_task is used to keep spawned Tasks in-scope so they are not dropped.
+    // we set it, but never read from it, which the compiler warns about.
+    // so we use allow(dead_code), even though it's needed for reference keeping.
     #[allow(dead_code)]
     #[cfg(not(target_arch = "wasm32"))]
     channels_task: Option<Task<()>>,

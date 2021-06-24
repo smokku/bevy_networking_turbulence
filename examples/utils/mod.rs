@@ -29,7 +29,7 @@ pub struct IdleTimeoutArgs {
 
 #[allow(dead_code)]
 pub fn parse_simple_args() -> SimpleArgs {
-    let matches = ClapApp::new("")
+    let matches = ClapApp::new(std::env::current_exe().file_name().to_string_lossy())
         .about("Simple example just sends some packets")
         .args(server_or_client_args().as_slice())
         .get_matches();

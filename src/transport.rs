@@ -33,7 +33,6 @@ pub type MultiplexedPacket = MuxPacket<<BufferPacketPool<SimpleBufferPool> as Pa
 pub type ConnectionChannelsBuilder =
     MessageChannelsBuilder<TaskPoolRuntime, MuxPacketPool<BufferPacketPool<SimpleBufferPool>>>;
 
-pub const HEARTBEAT_PACKET: &[u8] = b"BNT:HEARTBEAT";
 
 #[derive(Debug, Clone)]
 pub struct PacketStats {

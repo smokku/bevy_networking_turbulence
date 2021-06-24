@@ -467,7 +467,8 @@ pub fn heartbeats_and_timeouts(mut net: ResMut<NetworkResource>, mut network_eve
     }
     for handle in needs_hb_handles {
         log::debug!("Sending hearbeat packet on h:{}", handle);
-        net.send(handle, Packet::from_static(transport::HEARTBEAT_PACKET)).unwrap();   
+        // heartbeat packets are empty
+        net.send(handle, Packet::new()).unwrap();
     }
     for handle in silent_handles {
         log::warn!("Idle disconnect for h:{}", handle);
@@ -504,7 +505,8 @@ pub fn receive_packets(
         while let Some(result) = connection.receive() {
             match result {
                 Ok(packet) => {
-                    if packet == transport::HEARTBEAT_PACKET {
+                    // heartbeat packets are empty
+                    if packet.len() == 0 {
                         log::debug!("Received heartbeat packet");
                         // discard without sending a NetworkEvent
                         continue;

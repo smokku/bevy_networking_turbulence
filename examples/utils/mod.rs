@@ -27,9 +27,19 @@ pub struct IdleTimeoutArgs {
     pub auto_heartbeat_ms: Option<usize>,
 }
 
+fn exe_name() -> String {
+    match std::env::current_exe() {
+        Ok(pathbuf) => match pathbuf.file_name() {
+            Some(name) => name.to_string_lossy().into(),
+            None => String::new()
+        },
+        Err(_) => String::new()
+    }
+}
+
 #[allow(dead_code)]
 pub fn parse_simple_args() -> SimpleArgs {
-    let matches = ClapApp::new(std::env::current_exe().file_name().to_string_lossy())
+    let matches = ClapApp::new(exe_name())
         .about("Simple example just sends some packets")
         .args(server_or_client_args().as_slice())
         .get_matches();

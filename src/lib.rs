@@ -1,7 +1,9 @@
-use bevy_app::{AppBuilder, Events, Plugin, CoreStage};
-use bevy_ecs::prelude::*;
-use bevy_tasks::{IoTaskPool, TaskPool};
-use bevy_core::{FixedTimestep};
+use bevy::{
+    app::{AppBuilder, Events, Plugin, CoreStage},
+    ecs::prelude::*,
+    tasks::{IoTaskPool, TaskPool, Task},
+    core::FixedTimestep,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, Receiver, Sender, SendError as CrossbeamSendError};
@@ -120,7 +122,7 @@ pub struct NetworkResource {
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)] // FIXME: remove this struct?
 struct ServerListener {
-    receiver_task: bevy_tasks::Task<()>,
+    receiver_task: Task<()>,
     // needed to keep receiver_task alive
     sender: ServerSender,
     socket_address: SocketAddr,

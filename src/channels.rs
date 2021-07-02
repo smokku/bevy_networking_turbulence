@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use bevy_tasks::{Task, TaskPool};
+use bevy::tasks::{Task, TaskPool};
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use std::{

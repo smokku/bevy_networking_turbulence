@@ -1,6 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
-use bevy_tasks::Task;
-use bevy_tasks::TaskPool;
+use bevy::tasks::Task;
+use bevy::tasks::TaskPool;
 use bytes::Bytes;
 use std::{error::Error, net::SocketAddr, sync::{Arc, RwLock}};
 use instant::{Instant, Duration};

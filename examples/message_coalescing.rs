@@ -39,7 +39,8 @@ fn main() {
             console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
         }
         else {
-            simple_logger::SimpleLogger::from_env()
+            simple_logger::SimpleLogger::new()
+            .env()
             .init()
             .expect("A logger was already initialized");
         }
@@ -51,7 +52,7 @@ fn main() {
         net_plugin.message_flushing_strategy = MessageFlushingStrategy::Never;
     }
 
-    let mut app = App::build();
+    let mut app = App::new();
     app
         // minimal plugins necessary for timers + headless loop
         .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(

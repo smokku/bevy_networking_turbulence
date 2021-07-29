@@ -1,5 +1,5 @@
 use bevy::{
-    app::{AppBuilder, Events, Plugin, CoreStage},
+    app::{App, Events, Plugin, CoreStage},
     ecs::prelude::*,
     tasks::{IoTaskPool, TaskPool, Task},
     core::FixedTimestep,
@@ -69,9 +69,9 @@ pub struct NetworkingPlugin {
 }
 
 impl Plugin for NetworkingPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         let task_pool = app
-            .world()
+            .world
             .get_resource::<IoTaskPool>()
             .expect("`IoTaskPool` resource not found.")
             .0

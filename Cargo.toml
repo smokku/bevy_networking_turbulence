@@ -27,7 +27,7 @@ use-webrtc = [
 ]
 
 [dependencies]
-bevy = { git = "https://github.com/bevyengine/bevy", default-features = false}
+bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", default-features = false}
 turbulence = "0.3"
 naia-client-socket = { version = "0.6", features = ["multithread"] }
 bytes = "1.0"

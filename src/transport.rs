@@ -109,7 +109,8 @@ pub struct ServerConnection {
     task_pool: TaskPool,
 
     packet_rx: crossbeam_channel::Receiver<Result<Packet, NetworkError>>,
-    sender: Option<ServerSender>,
+    packet_sender: ServerSender,
+    channel_sender: Option<ServerSender>,
     client_address: SocketAddr,
     stats: Arc<RwLock<PacketStats>>,
 
@@ -128,13 +129,15 @@ impl ServerConnection {
     pub fn new(
         task_pool: TaskPool,
         packet_rx: crossbeam_channel::Receiver<Result<Packet, NetworkError>>,
-        sender: ServerSender,
+        packet_sender: ServerSender,
+        channel_sender: ServerSender,
         client_address: SocketAddr,
     ) -> Self {
         ServerConnection {
             task_pool,
             packet_rx,
-            sender: Some(sender),
+            packet_sender,
+            channel_sender: Some(channel_sender),
             client_address,
             stats: Arc::new(RwLock::new(PacketStats::default())),
             channels: None,
@@ -157,10 +160,7 @@ impl Connection for ServerConnection {
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.stats.write().expect("stats lock poisoned").add_tx(payload.len());
         block_on(
-            self.sender
-                .as_mut()
-                .unwrap()
-                .send(ServerPacket::new(self.client_address, payload.to_vec())),
+            self.packet_sender.send(ServerPacket::new(self.client_address, payload.to_vec())),
         )
     }
 
@@ -201,7 +201,7 @@ impl Connection for ServerConnection {
         let (channels_rx, mut channels_tx) = multiplexer.start();
         self.channels_rx = Some(channels_rx);
 
-        let mut sender = self.sender.take().unwrap();
+        let mut sender = self.channel_sender.take().unwrap();
         let client_address = self.client_address;
         let stats = self.stats.clone();
         self.channels_task = Some(self.task_pool.spawn(async move {
@@ -229,7 +229,8 @@ pub struct ClientConnection {
     task_pool: TaskPool,
 
     socket: Box<dyn ClientSocketTrait>,
-    sender: Option<ClientSender>,
+    packet_sender: ClientSender,
+    channel_sender: Option<ClientSender>,
     stats: Arc<RwLock<PacketStats>>,
 
     channels: Option<MessageChannels>,
@@ -246,12 +247,14 @@ impl ClientConnection {
     pub fn new(
         task_pool: TaskPool,
         socket: Box<dyn ClientSocketTrait>,
-        sender: ClientSender,
+        packet_sender: ClientSender,
+        channel_sender: ClientSender,
     ) -> Self {
         ClientConnection {
             task_pool,
             socket,
-            sender: Some(sender),
+            packet_sender,
+            channel_sender: Some(channel_sender),
             stats: Arc::new(RwLock::new(PacketStats::default())),
             channels: None,
             channels_rx: None,
@@ -277,10 +280,7 @@ impl Connection for ClientConnection {
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.stats.write().expect("stats lock poisoned").add_tx(payload.len());
-        self.sender
-            .as_mut()
-            .unwrap()
-            .send(ClientPacket::new(payload.to_vec()))
+        self.packet_sender.send(ClientPacket::new(payload.to_vec()))
     }
 
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>> {
@@ -307,7 +307,7 @@ impl Connection for ClientConnection {
         let (channels_rx, mut channels_tx) = multiplexer.start();
         self.channels_rx = Some(channels_rx);
 
-        let mut sender = self.sender.take().unwrap();
+        let mut sender = self.channel_sender.take().unwrap();
         let stats = self.stats.clone();
         #[allow(unused_variables)]
         let channels_task = self.task_pool.spawn(async move {

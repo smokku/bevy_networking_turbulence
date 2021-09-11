@@ -303,6 +303,7 @@ impl NetworkResource {
                                         task_pool.clone(),
                                         packet_rx,
                                         server_socket.get_sender(),
+                                        server_socket.get_sender(),
                                         address,
                                     ),
                                 ));
@@ -340,7 +341,8 @@ impl NetworkResource {
                 socket
             }
         };
-        let sender = client_socket.get_sender();
+        let packet_sender = client_socket.get_sender();
+        let channel_sender = client_socket.get_sender();
 
         self.pending_connections
             .lock()
@@ -348,7 +350,8 @@ impl NetworkResource {
             .push(Box::new(transport::ClientConnection::new(
                 self.task_pool.clone(),
                 client_socket,
-                sender,
+                packet_sender,
+                channel_sender,
             )));
     }
 

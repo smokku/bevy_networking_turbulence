@@ -43,7 +43,7 @@ struct Ball {
 struct BallsExample;
 
 impl Plugin for BallsExample {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         let args = parse_simple_args();
         if args.is_server {
             // Server

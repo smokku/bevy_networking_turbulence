@@ -26,7 +26,7 @@ fn main() {
         }
     }
 
-    App::build()
+    App::new()
         // minimal plugins necessary for timers + headless loop
         .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,

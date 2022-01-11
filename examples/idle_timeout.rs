@@ -44,7 +44,7 @@ fn main() {
         pong_reservoir: args.pongs,
     };
 
-    let mut app = App::build();
+    let mut app = App::new();
     app
         // minimal plugins necessary for timers + headless loop
         .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(

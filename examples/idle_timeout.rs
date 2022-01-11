@@ -27,7 +27,8 @@ fn main() {
             console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
         }
         else {
-            simple_logger::SimpleLogger::from_env()
+            simple_logger::SimpleLogger::new()
+            .env()
             .init()
             .expect("A logger was already initialized");
         }

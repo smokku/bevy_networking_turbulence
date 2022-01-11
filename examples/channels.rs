@@ -26,16 +26,19 @@ const BOARD_WIDTH: u32 = 1000;
 const BOARD_HEIGHT: u32 = 1000;
 
 fn main() {
-    simple_logger::SimpleLogger::from_env()
+    simple_logger::SimpleLogger::new()
+        .env()
         .init()
         .expect("A logger was already initialized");
 
-    App::build().add_plugin(BallsExample).run();
+    App::new().add_plugin(BallsExample).run();
 }
 
+#[derive(Component)]
 struct Pawn {
     controller: u32,
 }
+#[derive(Component)]
 struct Ball {
     velocity: Vec3,
 }
@@ -227,10 +230,10 @@ fn handle_packets(
 
                             // New client connected - spawn a ball
                             let mut rng = rand::thread_rng();
-                            let vel_x = rng.gen_range(-0.5, 0.5);
-                            let vel_y = rng.gen_range(-0.5, 0.5);
-                            let pos_x = rng.gen_range(0, BOARD_WIDTH) as f32;
-                            let pos_y = rng.gen_range(0, BOARD_HEIGHT) as f32;
+                            let vel_x = rng.gen_range(-0.5..0.5);
+                            let vel_y = rng.gen_range(-0.5..0.5);
+                            let pos_x = rng.gen_range(0..BOARD_WIDTH) as f32;
+                            let pos_y = rng.gen_range(0..BOARD_HEIGHT) as f32;
                             log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
                             commands.spawn_bundle((
                                 Ball {
@@ -309,7 +312,6 @@ fn handle_messages_client(
     mut commands: Commands,
     mut net: ResMut<NetworkResource>,
     mut server_ids: ResMut<ServerIds>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     mut balls: Query<(Entity, &mut Ball, &mut Transform)>,
 ) {
     for (handle, connection) in net.connections.iter_mut() {
@@ -367,11 +369,12 @@ fn handle_messages_client(
             log::info!("Spawning {} @{}", id, frame);
             let entity = commands
                 .spawn_bundle(SpriteBundle {
-                    material: materials.add(
-                        Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)).into(),
-                    ),
                     transform: Transform::from_translation(*translation),
-                    sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                    sprite: Sprite {
+                        color:Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)),
+                        custom_size: Some(Vec2::new(30.0, 30.0)),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .insert(Ball {

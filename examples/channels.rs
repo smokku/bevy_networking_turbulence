@@ -7,8 +7,9 @@
 
 use bevy::{
     app::{ScheduleRunnerPlugin, ScheduleRunnerSettings},
+    log::LogPlugin,
     prelude::*,
-    render::camera::WindowOrigin
+    render::camera::WindowOrigin,
 };
 use bevy_networking_turbulence::{
     ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, NetworkEvent,
@@ -19,18 +20,13 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::{SimpleArgs as Args, parse_simple_args};
+use utils::{parse_simple_args, SimpleArgs as Args};
 
 const SERVER_PORT: u16 = 14192;
 const BOARD_WIDTH: u32 = 1000;
 const BOARD_HEIGHT: u32 = 1000;
 
 fn main() {
-    simple_logger::SimpleLogger::new()
-        .env()
-        .init()
-        .expect("A logger was already initialized");
-
     App::new().add_plugin(BallsExample).run();
 }
 
@@ -54,6 +50,7 @@ impl Plugin for BallsExample {
                 1.0 / 60.0,
             )))
             .add_plugins(MinimalPlugins)
+            .add_plugin(LogPlugin)
             .add_plugin(ScheduleRunnerPlugin::default())
             .add_startup_system(server_setup.system())
             .add_system(ball_movement_system.system())
@@ -371,7 +368,7 @@ fn handle_messages_client(
                 .spawn_bundle(SpriteBundle {
                     transform: Transform::from_translation(*translation),
                     sprite: Sprite {
-                        color:Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)),
+                        color: Color::rgb(0.8 - (*id as f32 / 5.0), 0.2, 0.2 + (*id as f32 / 5.0)),
                         custom_size: Some(Vec2::new(30.0, 30.0)),
                         ..Default::default()
                     },

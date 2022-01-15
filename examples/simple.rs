@@ -2,6 +2,7 @@ use bevy::{
     app::{App, EventReader, ScheduleRunnerSettings},
     core::Time,
     ecs::prelude::*,
+    log::LogPlugin,
     MinimalPlugins,
 };
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
@@ -9,30 +10,18 @@ use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::{SimpleArgs as Args, parse_simple_args};
+use utils::{parse_simple_args, SimpleArgs as Args};
 
 const SERVER_PORT: u16 = 14191;
 
 fn main() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
-        }
-        else {
-            simple_logger::SimpleLogger::new()
-            .env()
-            .init()
-            .expect("A logger was already initialized");
-        }
-    }
-
     App::new()
         // minimal plugins necessary for timers + headless loop
         .insert_resource(ScheduleRunnerSettings::run_loop(Duration::from_secs_f64(
             1.0 / 60.0,
         )))
         .add_plugins(MinimalPlugins)
+        .add_plugin(LogPlugin)
         // The NetworkingPlugin
         .add_plugin(NetworkingPlugin::default())
         // Our networking

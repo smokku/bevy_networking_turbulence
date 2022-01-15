@@ -1,21 +1,22 @@
 use bevy::{
-    app::{App, ScheduleRunnerSettings, AppExit, EventWriter, CoreStage},
+    app::{App, AppExit, CoreStage, EventWriter, ScheduleRunnerSettings},
     core::Time,
     ecs::prelude::*,
+    log::LogPlugin,
     MinimalPlugins,
 };
 
 use serde::{Deserialize, Serialize};
 
 use bevy_networking_turbulence::{
-    ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings,
-    NetworkResource, NetworkingPlugin, MessageFlushingStrategy,
+    ConnectionChannelsBuilder, MessageChannelMode, MessageChannelSettings, MessageFlushingStrategy,
+    NetworkResource, NetworkingPlugin,
 };
 
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::{MessageCoalescingArgs as Args, parse_message_coalescing_args};
+use utils::{parse_message_coalescing_args, MessageCoalescingArgs as Args};
 
 const SERVER_PORT: u16 = 14191;
 const NUM_PINGS: usize = 100;
@@ -33,19 +34,6 @@ type TTL = Option<f64>;
 type Ticks = usize;
 
 fn main() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
-        }
-        else {
-            simple_logger::SimpleLogger::new()
-            .env()
-            .init()
-            .expect("A logger was already initialized");
-        }
-    }
-
     let args = parse_message_coalescing_args();
     let mut net_plugin = NetworkingPlugin::default();
     if args.manual_flush {
@@ -62,6 +50,7 @@ fn main() {
         .insert_resource::<TTL>(None)
         .insert_resource(PingPongCounter::default())
         .add_plugins(MinimalPlugins)
+        .add_plugin(LogPlugin)
         // The NetworkingPlugin
         .add_plugin(net_plugin)
         // Our networking
@@ -71,8 +60,7 @@ fn main() {
         .add_system(tick.system())
         .add_system(send_messages.system())
         .add_system(handle_messages.system())
-        .add_system(ttl_system.system())
-        ;
+        .add_system(ttl_system.system());
     if parse_message_coalescing_args().manual_flush {
         app.add_system_to_stage(CoreStage::PostUpdate, flush_channels.system());
     }
@@ -87,7 +75,7 @@ enum NetMsg {
 
 const NETMSG_SETTINGS: MessageChannelSettings = MessageChannelSettings {
     channel: 0,
-    channel_mode: MessageChannelMode::Unreliable,   
+    channel_mode: MessageChannelMode::Unreliable,
     // The buffer size for the mpsc channel of messages that transports messages of this type to /
     // from the network task.
     message_buffer_size: NUM_PINGS,
@@ -139,15 +127,29 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
 }
 
-fn ttl_system(mut ttl: ResMut<TTL>, mut exit: EventWriter<AppExit>, time: Res<Time>, net: Res<NetworkResource>, ppc: Res<PingPongCounter>, args: Res<Args>) {
+fn ttl_system(
+    mut ttl: ResMut<TTL>,
+    mut exit: EventWriter<AppExit>,
+    time: Res<Time>,
+    net: Res<NetworkResource>,
+    ppc: Res<PingPongCounter>,
+    args: Res<Args>,
+) {
     match *ttl {
-        None => {},
+        None => {}
         Some(secs) => {
             let new_secs = secs - time.delta_seconds_f64();
             if new_secs <= 0.0 {
                 // dump some stats and exit
-                log::info!("Final stats, is_server: {:?}, flushing mode: {}", args.is_server, 
-                    if args.manual_flush {"--manual-flush"} else {"--auto-flush"});
+                log::info!(
+                    "Final stats, is_server: {:?}, flushing mode: {}",
+                    args.is_server,
+                    if args.manual_flush {
+                        "--manual-flush"
+                    } else {
+                        "--auto-flush"
+                    }
+                );
                 log::info!("{:?}", *ppc);
                 for (handle, connection) in net.connections.iter() {
                     log::info!("{:?} [h:{}]", connection.stats(), handle);
@@ -163,9 +165,9 @@ fn ttl_system(mut ttl: ResMut<TTL>, mut exit: EventWriter<AppExit>, time: Res<Ti
 }
 
 fn send_messages(
-    mut net: ResMut<NetworkResource>, 
-    mut ppc: ResMut<PingPongCounter>, 
-    args: Res<Args>, 
+    mut net: ResMut<NetworkResource>,
+    mut ppc: ResMut<PingPongCounter>,
+    args: Res<Args>,
     mut ttl: ResMut<TTL>,
     ticks: Res<Ticks>,
 ) {
@@ -207,7 +209,7 @@ fn handle_messages(
                     if ttl.is_none() {
                         *ttl = Some(3.0);
                     }
-                },
+                }
                 NetMsg::Pong(i) => {
                     ppc.pongs_seen += 1;
                     log::info!("[t:{}] Got pong {}", *ticks, i);

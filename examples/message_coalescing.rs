@@ -1,9 +1,7 @@
 use bevy::{
-    app::{App, AppExit, CoreStage, EventWriter, ScheduleRunnerSettings},
-    core::Time,
-    ecs::prelude::*,
+    app::{AppExit, ScheduleRunnerSettings},
     log::LogPlugin,
-    MinimalPlugins,
+    prelude::*,
 };
 
 use serde::{Deserialize, Serialize};
@@ -118,11 +116,11 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 
     #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
-        log::info!("Starting server");
+        info!("Starting server");
         net.listen(server_address, None, None);
     }
     if !args.is_server {
-        log::info!("Starting client");
+        info!("Starting client");
         net.connect(server_address);
     }
 }
@@ -141,7 +139,7 @@ fn ttl_system(
             let new_secs = secs - time.delta_seconds_f64();
             if new_secs <= 0.0 {
                 // dump some stats and exit
-                log::info!(
+                info!(
                     "Final stats, is_server: {:?}, flushing mode: {}",
                     args.is_server,
                     if args.manual_flush {
@@ -150,11 +148,11 @@ fn ttl_system(
                         "--auto-flush"
                     }
                 );
-                log::info!("{:?}", *ppc);
+                info!("{:?}", *ppc);
                 for (handle, connection) in net.connections.iter() {
-                    log::info!("{:?} [h:{}]", connection.stats(), handle);
+                    info!("{:?} [h:{}]", connection.stats(), handle);
                 }
-                log::info!("Exiting.");
+                info!("Exiting.");
                 exit.send(AppExit);
                 return;
             } else {
@@ -180,7 +178,7 @@ fn send_messages(
         if ppc.pings_sent < NUM_PINGS {
             ppc.pings_sent += 1;
             let msg = NetMsg::Ping(ppc.pings_sent);
-            log::info!("[t:{}] Sending ping {}", *ticks, ppc.pings_sent);
+            info!("[t:{}] Sending ping {}", *ticks, ppc.pings_sent);
             net.broadcast_message(msg);
         } else if ppc.pings_sent == NUM_PINGS && ttl.is_none() {
             // shutdown after short delay, to finish receiving in-flight pongs
@@ -203,7 +201,7 @@ fn handle_messages(
             match netmsg {
                 NetMsg::Ping(i) => {
                     ppc.pings_seen += 1;
-                    log::info!("[t:{}] Sending pong {}", *ticks, i);
+                    info!("[t:{}] Sending pong {}", *ticks, i);
                     to_send.push((*handle, NetMsg::Pong(i)));
                     // seen our first ping, so schedule a shutdown
                     if ttl.is_none() {
@@ -212,7 +210,7 @@ fn handle_messages(
                 }
                 NetMsg::Pong(i) => {
                     ppc.pongs_seen += 1;
-                    log::info!("[t:{}] Got pong {}", *ticks, i);
+                    info!("[t:{}] Got pong {}", *ticks, i);
                 }
             }
         }

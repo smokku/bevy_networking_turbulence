@@ -1,10 +1,4 @@
-use bevy::{
-    app::{App, EventReader, ScheduleRunnerSettings},
-    core::Time,
-    ecs::prelude::*,
-    log::LogPlugin,
-    MinimalPlugins,
-};
+use bevy::{app::ScheduleRunnerSettings, log::LogPlugin, prelude::*};
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
 
 use std::{net::SocketAddr, time::Duration};
@@ -49,11 +43,11 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 
     #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
-        log::info!("Starting server");
+        info!("Starting server");
         net.listen(server_address, None, None);
     }
     if !args.is_server {
-        log::info!("Starting client");
+        info!("Starting client");
         net.connect(server_address);
     }
 }
@@ -61,7 +55,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
     if !args.is_server {
         if (time.seconds_since_startup() * 60.) as i64 % 60 == 0 {
-            log::info!("PING");
+            info!("PING");
             net.broadcast(Packet::from("PING"));
         }
     }
@@ -75,15 +69,15 @@ fn handle_packets(
         match event {
             NetworkEvent::Packet(handle, packet) => {
                 let message = String::from_utf8_lossy(packet);
-                log::info!("Got packet on [{}]: {}", handle, message);
+                info!("Got packet on [{}]: {}", handle, message);
                 if message == "PING" {
                     let message = format!("PONG @ {}", time.seconds_since_startup());
                     match net.send(*handle, Packet::from(message)) {
                         Ok(()) => {
-                            log::info!("Sent PONG");
+                            info!("Sent PONG");
                         }
                         Err(error) => {
-                            log::info!("PONG send error: {}", error);
+                            info!("PONG send error: {}", error);
                         }
                     }
                 }

@@ -109,7 +109,7 @@ fn server_setup(mut net: ResMut<NetworkResource>) {
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
-    log::info!("Starting server");
+    info!("Starting server");
     net.listen(socket_address, None, None);
 }
 
@@ -121,7 +121,7 @@ fn client_setup(mut commands: Commands, mut net: ResMut<NetworkResource>) {
     let ip_address =
         bevy_networking_turbulence::find_my_ip_address().expect("can't find ip address");
     let socket_address = SocketAddr::new(ip_address, SERVER_PORT);
-    log::info!("Starting client");
+    info!("Starting client");
     net.connect(socket_address);
 }
 
@@ -219,10 +219,9 @@ fn handle_packets(
                 Some(connection) => {
                     match connection.remote_address() {
                         Some(remote_address) => {
-                            log::debug!(
+                            debug!(
                                 "Incoming connection on [{}] from [{}]",
-                                handle,
-                                remote_address
+                                handle, remote_address
                             );
 
                             // New client connected - spawn a ball
@@ -231,7 +230,7 @@ fn handle_packets(
                             let vel_y = rng.gen_range(-0.5..0.5);
                             let pos_x = rng.gen_range(0..BOARD_WIDTH) as f32;
                             let pos_y = rng.gen_range(0..BOARD_HEIGHT) as f32;
-                            log::info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
+                            info!("Spawning {}x{} {}/{}", pos_x, pos_y, vel_x, vel_y);
                             commands.spawn_bundle((
                                 Ball {
                                     velocity: 400.0 * Vec3::new(vel_x, vel_y, 0.0).normalize(),
@@ -243,21 +242,21 @@ fn handle_packets(
                             ));
                         }
                         None => {
-                            log::debug!("Connected on [{}]", handle);
+                            debug!("Connected on [{}]", handle);
                         }
                     }
 
                     if !args.is_server {
-                        log::debug!("Sending Hello on [{}]", handle);
+                        debug!("Sending Hello on [{}]", handle);
                         match net.send_message(*handle, ClientMessage::Hello("test".to_string())) {
                             Ok(msg) => match msg {
                                 Some(msg) => {
-                                    log::error!("Unable to send Hello: {:?}", msg);
+                                    error!("Unable to send Hello: {:?}", msg);
                                 }
                                 None => {}
                             },
                             Err(err) => {
-                                log::error!("Unable to send Hello: {:?}", err);
+                                error!("Unable to send Hello: {:?}", err);
                             }
                         };
                     }
@@ -273,14 +272,13 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&m
     for (handle, connection) in net.connections.iter_mut() {
         let channels = connection.channels().unwrap();
         while let Some(client_message) = channels.recv::<ClientMessage>() {
-            log::debug!(
+            debug!(
                 "ClientMessage received on [{}]: {:?}",
-                handle,
-                client_message
+                handle, client_message
             );
             match client_message {
                 ClientMessage::Hello(id) => {
-                    log::info!("Client [{}] connected on [{}]", id, handle);
+                    info!("Client [{}] connected on [{}]", id, handle);
                     // TODO: store client id?
                 }
                 ClientMessage::Direction(dir) => {
@@ -298,7 +296,7 @@ fn handle_messages_server(mut net: ResMut<NetworkResource>, mut balls: Query<(&m
         }
 
         while let Some(_state_message) = channels.recv::<GameStateMessage>() {
-            log::error!("GameStateMessage received on [{}]", handle);
+            error!("GameStateMessage received on [{}]", handle);
         }
     }
 }
@@ -314,7 +312,7 @@ fn handle_messages_client(
     for (handle, connection) in net.connections.iter_mut() {
         let channels = connection.channels().unwrap();
         while let Some(_client_message) = channels.recv::<ClientMessage>() {
-            log::error!("ClientMessage received on [{}]", handle);
+            error!("ClientMessage received on [{}]", handle);
         }
 
         // it is possible that many state updates came at the same time - spawn once
@@ -322,10 +320,9 @@ fn handle_messages_client(
 
         while let Some(mut state_message) = channels.recv::<GameStateMessage>() {
             let message_frame = state_message.frame;
-            log::info!(
+            info!(
                 "GameStateMessage received on [{}]: {:?}",
-                handle,
-                state_message
+                handle, state_message
             );
 
             // update all balls
@@ -363,7 +360,7 @@ fn handle_messages_client(
         }
 
         for (id, (frame, velocity, translation)) in to_spawn.iter() {
-            log::info!("Spawning {} @{}", id, frame);
+            info!("Spawning {} @{}", id, frame);
             let entity = commands
                 .spawn_bundle(SpriteBundle {
                     transform: Transform::from_translation(*translation),

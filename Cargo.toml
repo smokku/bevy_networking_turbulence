@@ -31,7 +31,6 @@ bevy = { version = "0.6", default-features = false }
 turbulence = "0.3"
 naia-client-socket = { version = "0.6", features = ["multithread"] }
 bytes = "1.1"
-log = "0.4"
 futures-lite = "1.12"
 crossbeam-channel = "0.5"
 cfg-if = "1.0"

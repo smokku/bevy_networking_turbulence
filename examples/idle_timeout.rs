@@ -1,10 +1,4 @@
-use bevy::{
-    app::{App, CoreStage, EventReader, ScheduleRunnerSettings},
-    core::FixedTimestep,
-    ecs::prelude::*,
-    log::LogPlugin,
-    MinimalPlugins,
-};
+use bevy::{app::ScheduleRunnerSettings, core::FixedTimestep, log::LogPlugin, prelude::*};
 
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
 
@@ -23,7 +17,7 @@ struct PingPongCounter {
 
 fn main() {
     let args = parse_idle_timeout_args();
-    log::info!("{:?}", args);
+    info!("{:?}", args);
 
     let mut net_plugin = NetworkingPlugin::default();
     net_plugin.idle_timeout_ms = args.idle_timeout_ms;
@@ -74,11 +68,11 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 
     #[cfg(not(target_arch = "wasm32"))]
     if args.is_server {
-        log::info!("Starting server");
+        info!("Starting server");
         net.listen(server_address, None, None);
     }
     if !args.is_server {
-        log::info!("Starting client");
+        info!("Starting client");
         net.connect(server_address);
     }
 }
@@ -92,7 +86,7 @@ fn send_pings(mut net: ResMut<NetworkResource>, mut ppc: ResMut<PingPongCounter>
     net.broadcast(Packet::from("PING"));
 
     if ppc.ping_reservoir == 0 {
-        log::info!("(No more pings left to send)");
+        info!("(No more pings left to send)");
     }
 }
 
@@ -105,21 +99,21 @@ fn send_pongs(
         match event {
             NetworkEvent::Packet(handle, packet) => {
                 let message = String::from_utf8_lossy(packet);
-                log::info!("Got packet on [{}]: {}", handle, message);
+                info!("Got packet on [{}]: {}", handle, message);
                 if message == "PING" {
                     if ppc.pong_reservoir > 0 {
                         ppc.pong_reservoir -= 1;
                         match net.send(*handle, Packet::from("PONG")) {
-                            Ok(()) => log::info!("Sent PONG"),
-                            Err(error) => log::warn!("PONG send error: {}", error),
+                            Ok(()) => info!("Sent PONG"),
+                            Err(error) => warn!("PONG send error: {}", error),
                         }
                     } else {
-                        log::info!("No pongs left to send.");
+                        info!("No pongs left to send.");
                     }
                 }
             }
             other => {
-                log::info!("Other event: {:?}", other);
+                info!("Other event: {:?}", other);
             }
         }
     }

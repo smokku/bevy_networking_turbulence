@@ -1,8 +1,9 @@
 use bevy::{
-    app::{App, EventReader, ScheduleRunnerSettings, CoreStage},
+    app::{App, CoreStage, EventReader, ScheduleRunnerSettings},
+    core::FixedTimestep,
     ecs::prelude::*,
+    log::LogPlugin,
     MinimalPlugins,
-    core::{FixedTimestep},
 };
 
 use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin, Packet};
@@ -10,7 +11,7 @@ use bevy_networking_turbulence::{NetworkEvent, NetworkResource, NetworkingPlugin
 use std::{net::SocketAddr, time::Duration};
 
 mod utils;
-use utils::{IdleTimeoutArgs as Args, parse_idle_timeout_args};
+use utils::{parse_idle_timeout_args, IdleTimeoutArgs as Args};
 
 const SERVER_PORT: u16 = 14191;
 
@@ -21,18 +22,6 @@ struct PingPongCounter {
 }
 
 fn main() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Debug).expect("cannot initialize console_log");
-        }
-        else {
-            simple_logger::SimpleLogger::new()
-            .env()
-            .init()
-            .expect("A logger was already initialized");
-        }
-    }
     let args = parse_idle_timeout_args();
     log::info!("{:?}", args);
 
@@ -53,18 +42,20 @@ fn main() {
         )))
         .insert_resource(ppc)
         .add_plugins(MinimalPlugins)
+        .add_plugin(LogPlugin)
         // The NetworkingPlugin
         .add_plugin(net_plugin)
         // Our networking
         .insert_resource(args)
         .add_startup_system(startup.system())
         .add_system(send_pongs.system())
-        .add_stage_after(CoreStage::Update, "ping_sending_stage",
-            SystemStage::single(send_pings.system()).with_run_criteria(FixedTimestep::step(1.0)))
-        ;
+        .add_stage_after(
+            CoreStage::Update,
+            "ping_sending_stage",
+            SystemStage::single(send_pings.system()).with_run_criteria(FixedTimestep::step(1.0)),
+        );
     app.run();
 }
-
 
 fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     cfg_if::cfg_if! {
@@ -92,10 +83,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
 }
 
-fn send_pings(
-    mut net: ResMut<NetworkResource>, 
-    mut ppc: ResMut<PingPongCounter>, 
-) {
+fn send_pings(mut net: ResMut<NetworkResource>, mut ppc: ResMut<PingPongCounter>) {
     if ppc.ping_reservoir == 0 {
         return;
     }
@@ -123,13 +111,13 @@ fn send_pongs(
                         ppc.pong_reservoir -= 1;
                         match net.send(*handle, Packet::from("PONG")) {
                             Ok(()) => log::info!("Sent PONG"),
-                            Err(error) => log::warn!("PONG send error: {}", error)
+                            Err(error) => log::warn!("PONG send error: {}", error),
                         }
                     } else {
                         log::info!("No pongs left to send.");
                     }
                 }
-            },
+            }
             other => {
                 log::info!("Other event: {:?}", other);
             }

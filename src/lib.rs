@@ -1,12 +1,12 @@
 use bevy::{
-    app::{App, Events, Plugin, CoreStage},
-    ecs::prelude::*,
-    tasks::{IoTaskPool, TaskPool, Task},
+    app::{App, CoreStage, Events, Plugin},
     core::FixedTimestep,
+    prelude::*,
+    tasks::{IoTaskPool, Task, TaskPool},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use crossbeam_channel::{unbounded, Receiver, Sender, SendError as CrossbeamSendError};
+use crossbeam_channel::{unbounded, Receiver, SendError as CrossbeamSendError, Sender};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -88,10 +88,15 @@ impl Plugin for NetworkingPlugin {
         .add_system(receive_packets.system());
         if self.idle_timeout_ms.is_some() || self.auto_heartbeat_ms.is_some() {
             // heartbeats and timeouts checking/sending only runs infrequently:
-            app.add_stage_after(CoreStage::Update, SendHeartbeatsStage,
+            app.add_stage_after(
+                CoreStage::Update,
+                SendHeartbeatsStage,
                 SystemStage::parallel()
-                .with_run_criteria(FixedTimestep::step(self.heartbeats_and_timeouts_timestep_in_seconds.unwrap_or(0.5)))
-                .with_system(heartbeats_and_timeouts.system())
+                    .with_run_criteria(FixedTimestep::step(
+                        self.heartbeats_and_timeouts_timestep_in_seconds
+                            .unwrap_or(0.5),
+                    ))
+                    .with_system(heartbeats_and_timeouts.system()),
             );
         }
     }
@@ -185,13 +190,13 @@ unsafe impl Send for NetworkResource {}
 unsafe impl Sync for NetworkResource {}
 
 impl NetworkResource {
-    pub fn new( task_pool: TaskPool,
-                link_conditioner: Option<LinkConditionerConfig>,
-                message_flushing_strategy: MessageFlushingStrategy,
-                idle_timeout_ms: Option<usize>,
-                auto_heartbeat_ms: Option<usize>,
-            ) -> Self
-    {
+    pub fn new(
+        task_pool: TaskPool,
+        link_conditioner: Option<LinkConditionerConfig>,
+        message_flushing_strategy: MessageFlushingStrategy,
+        idle_timeout_ms: Option<usize>,
+        auto_heartbeat_ms: Option<usize>,
+    ) -> Self {
         let runtime = TaskPoolRuntime::new(task_pool.clone());
         let packet_pool =
             MuxPacketPool::new(BufferPacketPool::new(SimpleBufferPool(MAX_PACKET_LEN)));
@@ -255,7 +260,7 @@ impl NetworkResource {
                     Ok(packet) => {
                         let address = packet.address();
                         let message = String::from_utf8_lossy(packet.payload());
-                        log::debug!(
+                        debug!(
                             "Server recv <- {}:{}: {}",
                             address,
                             packet.payload().len(),
@@ -271,7 +276,7 @@ impl NetworkResource {
                             }) {
                             Some(Ok(())) => false,
                             Some(Err(CrossbeamSendError(_packet))) => {
-                                log::error!("Server can't send to channel, recreating");
+                                error!("Server can't send to channel, recreating");
                                 // If we can't send to a channel, it's disconnected.
                                 // We need to re-create the channel and re-try sending the message.
                                 true
@@ -312,12 +317,12 @@ impl NetworkResource {
                                 // This branch is unlikely to get called the second time (after
                                 // re-creating a channel), but if for some strange reason it does,
                                 // we'll just lose the message this time.
-                                log::error!("Server Send Error (retry): {}", error);
+                                error!("Server Send Error (retry): {}", error);
                             }
                         }
                     }
                     Err(error) => {
-                        log::error!("Server Receive Error: {}", error);
+                        error!("Server Receive Error: {}", error);
                     }
                 }
             }
@@ -421,7 +426,7 @@ impl NetworkResource {
     }
 
     pub fn broadcast_message<M: ChannelMessage + Debug + Clone>(&mut self, message: M) {
-        // log::info!("Broadcast:\n{:?}", message);
+        // info!("Broadcast:\n{:?}", message);
         for (handle, connection) in self.connections.iter_mut() {
             let channels = connection.channels().unwrap();
             let result = channels.send(message.clone());
@@ -429,7 +434,7 @@ impl NetworkResource {
                 channels.flush::<M>();
             }
             if let Some(msg) = result {
-                log::error!("Failed broadcast to [{}]: {:?}", handle, msg);
+                error!("Failed broadcast to [{}]: {:?}", handle, msg);
             }
         }
     }
@@ -450,14 +455,17 @@ impl NetworkResource {
 
 // check every connection for timeouts.
 // ie. check how long since we last saw a packet.
-pub fn heartbeats_and_timeouts(mut net: ResMut<NetworkResource>, mut network_events: ResMut<Events<NetworkEvent>>) {
+pub fn heartbeats_and_timeouts(
+    mut net: ResMut<NetworkResource>,
+    mut network_events: ResMut<Events<NetworkEvent>>,
+) {
     let mut silent_handles = Vec::new();
     let mut needs_hb_handles = Vec::new();
     let idle_limit = net.idle_timeout_ms;
     let heartbeat_limit = net.auto_heartbeat_ms;
     for (handle, connection) in net.connections.iter_mut() {
         let (rx_ms, tx_ms) = connection.last_packet_timings();
-        log::debug!("millis since last rx: {} tx: {}", rx_ms, tx_ms);
+        debug!("millis since last rx: {} tx: {}", rx_ms, tx_ms);
         if idle_limit.is_some() && rx_ms > idle_limit.unwrap() as u128 {
             // idle-timeout this connection
             silent_handles.push(*handle);
@@ -468,12 +476,12 @@ pub fn heartbeats_and_timeouts(mut net: ResMut<NetworkResource>, mut network_eve
         }
     }
     for handle in needs_hb_handles {
-        log::debug!("Sending hearbeat packet on h:{}", handle);
+        debug!("Sending hearbeat packet on h:{}", handle);
         // heartbeat packets are empty
         net.send(handle, Packet::new()).unwrap();
     }
     for handle in silent_handles {
-        log::warn!("Idle disconnect for h:{}", handle);
+        warn!("Idle disconnect for h:{}", handle);
         // Error doesn't imply Disconnected, so we send both
         network_events.send(NetworkEvent::Error(handle, NetworkError::MissedHeartbeat));
         network_events.send(NetworkEvent::Disconnected(handle));
@@ -509,14 +517,14 @@ pub fn receive_packets(
                 Ok(packet) => {
                     // heartbeat packets are empty
                     if packet.len() == 0 {
-                        log::debug!("Received heartbeat packet");
+                        debug!("Received heartbeat packet");
                         // discard without sending a NetworkEvent
                         continue;
                     }
                     let message = String::from_utf8_lossy(&packet);
-                    log::debug!("Received on [{}] {} RAW: {}", handle, packet.len(), message);
+                    debug!("Received on [{}] {} RAW: {}", handle, packet.len(), message);
                     if let Some(channels_rx) = connection.channels_rx() {
-                        log::debug!("Processing as message");
+                        debug!("Processing as message");
                         let mut pool_packet = packet_pool.acquire();
                         pool_packet.resize(packet.len(), 0);
                         pool_packet[..].copy_from_slice(&*packet);
@@ -525,7 +533,7 @@ pub fn receive_packets(
                                 // cool
                             }
                             Err(err) => {
-                                log::error!("Channel Incoming Error: {}", err);
+                                error!("Channel Incoming Error: {}", err);
                                 network_events.send(NetworkEvent::Error(
                                     *handle,
                                     NetworkError::TurbulenceChannelError(err),
@@ -533,12 +541,12 @@ pub fn receive_packets(
                             }
                         }
                     } else {
-                        log::debug!("Processing as packet");
+                        debug!("Processing as packet");
                         network_events.send(NetworkEvent::Packet(*handle, packet));
                     }
                 }
                 Err(err) => {
-                    log::error!("Receive Error: {:?}", err);
+                    error!("Receive Error: {:?}", err);
                     network_events.send(NetworkEvent::Error(*handle, err));
                 }
             }

@@ -1,9 +1,13 @@
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::tasks::Task;
-use bevy::tasks::TaskPool;
+use bevy::{prelude::error, tasks::TaskPool};
 use bytes::Bytes;
-use std::{error::Error, net::SocketAddr, sync::{Arc, RwLock}};
-use instant::{Instant, Duration};
+use instant::{Duration, Instant};
+use std::{
+    error::Error,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+};
 
 use naia_client_socket::{
     ClientSocketTrait, MessageSender as ClientSender, Packet as ClientPacket,
@@ -56,7 +60,7 @@ impl Default for PacketStats {
             bytes_rx: 0,
             last_tx: now,
             last_rx: now,
-         }
+        }
     }
 }
 
@@ -155,7 +159,10 @@ impl Connection for ServerConnection {
     }
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.stats.write().expect("stats lock poisoned").add_tx(payload.len());
+        self.stats
+            .write()
+            .expect("stats lock poisoned")
+            .add_tx(payload.len());
         block_on(
             self.sender
                 .as_mut()
@@ -165,7 +172,11 @@ impl Connection for ServerConnection {
     }
 
     fn last_packet_timings(&self) -> (u128, u128) {
-        let (rx_dur, tx_dur) = self.stats.read().expect("stats lock poisoned").idle_durations();
+        let (rx_dur, tx_dur) = self
+            .stats
+            .read()
+            .expect("stats lock poisoned")
+            .idle_durations();
         (rx_dur.as_millis(), tx_dur.as_millis())
     }
 
@@ -173,10 +184,13 @@ impl Connection for ServerConnection {
         match self.packet_rx.try_recv() {
             Ok(payload) => match payload {
                 Ok(packet) => {
-                    self.stats.write().expect("stats lock poisoned").add_rx(packet.len());
+                    self.stats
+                        .write()
+                        .expect("stats lock poisoned")
+                        .add_rx(packet.len());
                     Some(Ok(packet))
-                },
-                Err(err) => Some(Err(err))
+                }
+                Err(err) => Some(Err(err)),
             },
             Err(error) => match error {
                 crossbeam_channel::TryRecvError::Empty => None,
@@ -207,7 +221,10 @@ impl Connection for ServerConnection {
         self.channels_task = Some(self.task_pool.spawn(async move {
             loop {
                 let packet = channels_tx.next().await.unwrap();
-                stats.write().expect("stats lock poisoned").add_tx(packet.len());
+                stats
+                    .write()
+                    .expect("stats lock poisoned")
+                    .add_tx(packet.len());
                 sender
                     .send(ServerPacket::new(client_address, (*packet).into()))
                     .await
@@ -271,12 +288,19 @@ impl Connection for ClientConnection {
     }
 
     fn last_packet_timings(&self) -> (u128, u128) {
-        let (rx_dur, tx_dur) = self.stats.read().expect("stats lock poisoned").idle_durations();
+        let (rx_dur, tx_dur) = self
+            .stats
+            .read()
+            .expect("stats lock poisoned")
+            .idle_durations();
         (rx_dur.as_millis(), tx_dur.as_millis())
     }
 
     fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.stats.write().expect("stats lock poisoned").add_tx(payload.len());
+        self.stats
+            .write()
+            .expect("stats lock poisoned")
+            .add_tx(payload.len());
         self.sender
             .as_mut()
             .unwrap()
@@ -286,7 +310,10 @@ impl Connection for ClientConnection {
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>> {
         match self.socket.receive() {
             Ok(event) => event.map(|packet| {
-                self.stats.write().expect("stats lock poisoned").add_rx(packet.payload().len());
+                self.stats
+                    .write()
+                    .expect("stats lock poisoned")
+                    .add_rx(packet.payload().len());
                 Ok(Packet::copy_from_slice(packet.payload()))
             }),
             Err(err) => Some(Err(NetworkError::IoError(Box::new(err)))),
@@ -314,11 +341,14 @@ impl Connection for ClientConnection {
             loop {
                 match channels_tx.next().await {
                     Some(packet) => {
-                        stats.write().expect("stats lock poisoned").add_tx(packet.len());
+                        stats
+                            .write()
+                            .expect("stats lock poisoned")
+                            .add_tx(packet.len());
                         sender.send(ClientPacket::new((*packet).into())).unwrap();
                     }
                     None => {
-                        log::error!("Channel stream Disconnected");
+                        error!("Channel stream Disconnected");
                         return; // exit task
                     }
                 }

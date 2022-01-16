@@ -1,6 +1,6 @@
 [package]
 name = "bevy_networking_turbulence"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Tomasz Sterna <tomasz@sterna.link>"]
 description = "Networking plugin for Bevy engine running on naia-socket and turbulence libraries"

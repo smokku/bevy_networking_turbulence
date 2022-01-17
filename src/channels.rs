@@ -1,23 +1,8 @@
-#![allow(unused)]
-
-use bevy::tasks::{Task, TaskPool};
-use futures::{stream, Stream};
+use bevy::tasks::TaskPool;
 use futures_timer::Delay;
-use std::{
-    future::Future,
-    ops::Deref,
-    pin::Pin,
-    sync::{Arc, Mutex},
-    task::{Context, Poll, Waker},
-    time::Duration,
-};
+use std::{future::Future, ops::Deref, pin::Pin, sync::Arc, time::Duration};
 
-use turbulence::{
-    buffer::BufferPool,
-    packet::{Packet, PacketPool},
-    packet_multiplexer::{MuxPacket, MuxPacketPool},
-    runtime::Runtime,
-};
+use turbulence::{buffer::BufferPool, runtime::Runtime};
 
 #[derive(Clone, Debug)]
 pub struct SimpleBufferPool(pub usize);
@@ -35,15 +20,11 @@ pub struct TaskPoolRuntime(Arc<TaskPoolRuntimeInner>);
 
 pub struct TaskPoolRuntimeInner {
     pool: TaskPool,
-    tasks: Mutex<Vec<Task<()>>>, // FIXME: cleanup finished
 }
 
 impl TaskPoolRuntime {
     pub fn new(pool: TaskPool) -> Self {
-        TaskPoolRuntime(Arc::new(TaskPoolRuntimeInner {
-            pool,
-            tasks: Mutex::new(Vec::new()),
-        }))
+        TaskPoolRuntime(Arc::new(TaskPoolRuntimeInner { pool }))
     }
 }
 
@@ -60,9 +41,7 @@ impl Runtime for TaskPoolRuntime {
     type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
     fn spawn<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
-        let task = self.pool.spawn(Box::pin(f));
-        #[cfg(not(target_arch = "wasm32"))]
-        self.tasks.lock().unwrap().push(task);
+        self.pool.spawn(Box::pin(f)).detach();
     }
 
     fn now(&self) -> Self::Instant {
@@ -78,7 +57,6 @@ impl Runtime for TaskPoolRuntime {
     }
 
     fn sleep(&self, duration: Duration) -> Self::Sleep {
-        let state = Arc::clone(&self.0);
         Box::pin(async move {
             Delay::new(duration).await;
         })

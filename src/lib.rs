@@ -2,11 +2,11 @@ use bevy::{
     app::{App, CoreStage, Events, Plugin},
     core::FixedTimestep,
     prelude::*,
-    tasks::{IoTaskPool, Task, TaskPool},
+    tasks::{IoTaskPool, TaskPool},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use crossbeam_channel::{unbounded, Receiver, SendError as CrossbeamSendError, Sender};
+use crossbeam_channel::{unbounded, SendError as CrossbeamSendError, Sender};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -19,7 +19,7 @@ use std::{
 
 use naia_client_socket::ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{MessageSender as ServerSender, ServerSocket};
+use naia_server_socket::ServerSocket;
 
 pub use naia_client_socket::LinkConditionerConfig;
 #[cfg(not(target_arch = "wasm32"))]
@@ -102,6 +102,9 @@ impl Plugin for NetworkingPlugin {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+type ServerChannels = HashMap<SocketAddr, Sender<Result<Packet, NetworkError>>>;
+
 pub struct NetworkResource {
     task_pool: TaskPool,
 
@@ -110,9 +113,7 @@ pub struct NetworkResource {
     pub connections: HashMap<ConnectionHandle, Box<dyn Connection>>,
 
     #[cfg(not(target_arch = "wasm32"))]
-    listeners: Vec<ServerListener>,
-    #[cfg(not(target_arch = "wasm32"))]
-    server_channels: Arc<RwLock<HashMap<SocketAddr, Sender<Result<Packet, NetworkError>>>>>,
+    server_channels: Arc<RwLock<ServerChannels>>,
 
     runtime: TaskPoolRuntime,
     packet_pool: MuxPacketPool<BufferPacketPool<SimpleBufferPool>>,
@@ -122,15 +123,6 @@ pub struct NetworkResource {
     auto_heartbeat_ms: Option<usize>,
 
     link_conditioner: Option<LinkConditionerConfig>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)] // FIXME: remove this struct?
-struct ServerListener {
-    receiver_task: Task<()>,
-    // needed to keep receiver_task alive
-    sender: ServerSender,
-    socket_address: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -207,8 +199,6 @@ impl NetworkResource {
             connection_sequence: atomic::AtomicU32::new(0),
             pending_connections: Arc::new(Mutex::new(Vec::new())),
             #[cfg(not(target_arch = "wasm32"))]
-            listeners: Vec::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             server_channels: Arc::new(RwLock::new(HashMap::new())),
             runtime,
             packet_pool,
@@ -249,90 +239,84 @@ impl NetworkResource {
                 socket
             }
         };
-        let sender = server_socket.get_sender();
+
         let server_channels = self.server_channels.clone();
         let pending_connections = self.pending_connections.clone();
         let task_pool = self.task_pool.clone();
 
-        let receiver_task = self.task_pool.spawn(async move {
-            loop {
-                match server_socket.receive().await {
-                    Ok(packet) => {
-                        let address = packet.address();
-                        let message = String::from_utf8_lossy(packet.payload());
-                        debug!(
-                            "Server recv <- {}:{}: {}",
-                            address,
-                            packet.payload().len(),
-                            message
-                        );
+        self.task_pool
+            .spawn(async move {
+                loop {
+                    match server_socket.receive().await {
+                        Ok(packet) => {
+                            let address = packet.address();
+                            let message = String::from_utf8_lossy(packet.payload());
+                            debug!(
+                                "Server recv <- {}:{}: {}",
+                                address,
+                                packet.payload().len(),
+                                message
+                            );
 
-                        let needs_new_channel = match server_channels
-                            .read()
-                            .expect("server channels lock is poisoned")
-                            .get(&address)
-                            .map(|channel| {
-                                channel.send(Ok(Packet::copy_from_slice(packet.payload())))
-                            }) {
-                            Some(Ok(())) => false,
-                            Some(Err(CrossbeamSendError(_packet))) => {
-                                error!("Server can't send to channel, recreating");
-                                // If we can't send to a channel, it's disconnected.
-                                // We need to re-create the channel and re-try sending the message.
-                                true
+                            let needs_new_channel = match server_channels
+                                .read()
+                                .expect("server channels lock is poisoned")
+                                .get(&address)
+                                .map(|channel| {
+                                    channel.send(Ok(Packet::copy_from_slice(packet.payload())))
+                                }) {
+                                Some(Ok(())) => false,
+                                Some(Err(CrossbeamSendError(_packet))) => {
+                                    error!("Server can't send to channel, recreating");
+                                    // If we can't send to a channel, it's disconnected.
+                                    // We need to re-create the channel and re-try sending the message.
+                                    true
+                                }
+                                // This is a new connection, so we need to create a channel.
+                                None => true,
+                            };
+
+                            if !needs_new_channel {
+                                continue;
                             }
-                            // This is a new connection, so we need to create a channel.
-                            None => true,
-                        };
 
-                        if !needs_new_channel {
-                            continue;
+                            // We try to do a write lock only in case when a channel doesn't exist or
+                            // has to be re-created. Trying to acquire a channel even for new
+                            // connections is kind of a positive prediction to avoid doing a write
+                            // lock.
+                            let mut server_channels = server_channels
+                                .write()
+                                .expect("server channels lock is poisoned");
+                            let (packet_tx, packet_rx) =
+                                unbounded::<Result<Packet, NetworkError>>();
+                            match packet_tx.send(Ok(Packet::copy_from_slice(packet.payload()))) {
+                                Ok(()) => {
+                                    // It makes sense to store the channel only if it's healthy.
+                                    pending_connections.lock().unwrap().push(Box::new(
+                                        transport::ServerConnection::new(
+                                            task_pool.clone(),
+                                            packet_rx,
+                                            server_socket.get_sender(),
+                                            address,
+                                        ),
+                                    ));
+                                    server_channels.insert(address, packet_tx);
+                                }
+                                Err(error) => {
+                                    // This branch is unlikely to get called the second time (after
+                                    // re-creating a channel), but if for some strange reason it does,
+                                    // we'll just lose the message this time.
+                                    error!("Server Send Error (retry): {}", error);
+                                }
+                            }
                         }
-
-                        // We try to do a write lock only in case when a channel doesn't exist or
-                        // has to be re-created. Trying to acquire a channel even for new
-                        // connections is kind of a positive prediction to avoid doing a write
-                        // lock.
-                        let mut server_channels = server_channels
-                            .write()
-                            .expect("server channels lock is poisoned");
-                        let (packet_tx, packet_rx): (
-                            Sender<Result<Packet, NetworkError>>,
-                            Receiver<Result<Packet, NetworkError>>,
-                        ) = unbounded();
-                        match packet_tx.send(Ok(Packet::copy_from_slice(packet.payload()))) {
-                            Ok(()) => {
-                                // It makes sense to store the channel only if it's healthy.
-                                pending_connections.lock().unwrap().push(Box::new(
-                                    transport::ServerConnection::new(
-                                        task_pool.clone(),
-                                        packet_rx,
-                                        server_socket.get_sender(),
-                                        address,
-                                    ),
-                                ));
-                                server_channels.insert(address, packet_tx);
-                            }
-                            Err(error) => {
-                                // This branch is unlikely to get called the second time (after
-                                // re-creating a channel), but if for some strange reason it does,
-                                // we'll just lose the message this time.
-                                error!("Server Send Error (retry): {}", error);
-                            }
+                        Err(error) => {
+                            error!("Server Receive Error: {}", error);
                         }
-                    }
-                    Err(error) => {
-                        error!("Server Receive Error: {}", error);
                     }
                 }
-            }
-        });
-
-        self.listeners.push(ServerListener {
-            receiver_task,
-            sender,
-            socket_address,
-        });
+            })
+            .detach();
     }
 
     pub fn connect(&mut self, socket_address: SocketAddr) {
@@ -516,7 +500,7 @@ pub fn receive_packets(
             match result {
                 Ok(packet) => {
                     // heartbeat packets are empty
-                    if packet.len() == 0 {
+                    if packet.is_empty() {
                         debug!("Received heartbeat packet");
                         // discard without sending a NetworkEvent
                         continue;

@@ -19,9 +19,11 @@ fn main() {
     let args = parse_idle_timeout_args();
     info!("{:?}", args);
 
-    let mut net_plugin = NetworkingPlugin::default();
-    net_plugin.idle_timeout_ms = args.idle_timeout_ms;
-    net_plugin.auto_heartbeat_ms = args.auto_heartbeat_ms;
+    let net_plugin = NetworkingPlugin {
+        idle_timeout_ms: args.idle_timeout_ms,
+        auto_heartbeat_ms: args.auto_heartbeat_ms,
+        ..Default::default()
+    };
 
     let ppc = PingPongCounter {
         ping_reservoir: args.pings,

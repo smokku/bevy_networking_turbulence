@@ -27,7 +27,7 @@ struct PingPongCounter {
     pongs_seen: usize,
 }
 
-type TTL = Option<f64>;
+type Ttl = Option<f64>;
 
 type Ticks = usize;
 
@@ -45,7 +45,7 @@ fn main() {
             1.0 / 60.0,
         )))
         .insert_resource::<Ticks>(0)
-        .insert_resource::<TTL>(None)
+        .insert_resource::<Ttl>(None)
         .insert_resource(PingPongCounter::default())
         .add_plugins(MinimalPlugins)
         .add_plugin(LogPlugin)
@@ -126,7 +126,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 }
 
 fn ttl_system(
-    mut ttl: ResMut<TTL>,
+    mut ttl: ResMut<Ttl>,
     mut exit: EventWriter<AppExit>,
     time: Res<Time>,
     net: Res<NetworkResource>,
@@ -154,7 +154,6 @@ fn ttl_system(
                 }
                 info!("Exiting.");
                 exit.send(AppExit);
-                return;
             } else {
                 *ttl = Some(new_secs);
             }
@@ -166,7 +165,7 @@ fn send_messages(
     mut net: ResMut<NetworkResource>,
     mut ppc: ResMut<PingPongCounter>,
     args: Res<Args>,
-    mut ttl: ResMut<TTL>,
+    mut ttl: ResMut<Ttl>,
     ticks: Res<Ticks>,
 ) {
     if args.is_server {
@@ -191,7 +190,7 @@ fn send_messages(
 fn handle_messages(
     mut net: ResMut<NetworkResource>,
     mut ppc: ResMut<PingPongCounter>,
-    mut ttl: ResMut<TTL>,
+    mut ttl: ResMut<Ttl>,
     ticks: Res<Ticks>,
 ) {
     let mut to_send = Vec::new();

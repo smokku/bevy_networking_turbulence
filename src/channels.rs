@@ -1,5 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::tasks::Task;
 use bevy::tasks::TaskPool;
 use futures_timer::Delay;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
 use std::{future::Future, ops::Deref, pin::Pin, sync::Arc, time::Duration};
 
 use turbulence::{buffer::BufferPool, runtime::Runtime};
@@ -20,10 +24,20 @@ pub struct TaskPoolRuntime(Arc<TaskPoolRuntimeInner>);
 
 pub struct TaskPoolRuntimeInner {
     pool: TaskPool,
+    #[cfg(not(target_arch = "wasm32"))]
+    tasks: Mutex<Vec<Task<()>>>, // FIXME: cleanup finished
 }
 
 impl TaskPoolRuntime {
     pub fn new(pool: TaskPool) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            TaskPoolRuntime(Arc::new(TaskPoolRuntimeInner {
+                pool,
+                tasks: Mutex::new(Vec::new()),
+            }))
+        }
+        #[cfg(target_arch = "wasm32")]
         TaskPoolRuntime(Arc::new(TaskPoolRuntimeInner { pool }))
     }
 }
@@ -41,7 +55,13 @@ impl Runtime for TaskPoolRuntime {
     type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
     fn spawn<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
-        self.pool.spawn(Box::pin(f)).detach();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.tasks
+            .lock()
+            .unwrap()
+            .push(self.pool.spawn(Box::pin(f)));
+        #[cfg(target_arch = "wasm32")]
+        self.pool.spawn(Box::pin(f));
     }
 
     fn now(&self) -> Self::Instant {

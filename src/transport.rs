@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::tasks::Task;
 use bevy::{prelude::error, tasks::TaskPool};
 use bytes::Bytes;
 use instant::{Duration, Instant};
@@ -117,6 +119,8 @@ pub struct ServerConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    channels_task: Option<Task<()>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -135,6 +139,7 @@ impl ServerConnection {
             stats: Arc::new(RwLock::new(PacketStats::default())),
             channels: None,
             channels_rx: None,
+            channels_task: None,
         }
     }
 }
@@ -209,21 +214,20 @@ impl Connection for ServerConnection {
         let mut sender = self.sender.take().unwrap();
         let client_address = self.client_address;
         let stats = self.stats.clone();
-        self.task_pool
-            .spawn(async move {
-                loop {
-                    let packet = channels_tx.next().await.unwrap();
-                    stats
-                        .write()
-                        .expect("stats lock poisoned")
-                        .add_tx(packet.len());
-                    sender
-                        .send(ServerPacket::new(client_address, (*packet).into()))
-                        .await
-                        .unwrap();
-                }
-            })
-            .detach();
+
+        self.channels_task = Some(self.task_pool.spawn(async move {
+            loop {
+                let packet = channels_tx.next().await.unwrap();
+                stats
+                    .write()
+                    .expect("stats lock poisoned")
+                    .add_tx(packet.len());
+                sender
+                    .send(ServerPacket::new(client_address, (*packet).into()))
+                    .await
+                    .unwrap();
+            }
+        }));
     }
 
     fn channels(&mut self) -> Option<&mut MessageChannels> {
@@ -244,6 +248,8 @@ pub struct ClientConnection {
 
     channels: Option<MessageChannels>,
     channels_rx: Option<IncomingMultiplexedPackets<MultiplexedPacket>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    channels_task: Option<Task<()>>,
 }
 
 impl ClientConnection {
@@ -259,6 +265,8 @@ impl ClientConnection {
             stats: Arc::new(RwLock::new(PacketStats::default())),
             channels: None,
             channels_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            channels_task: None,
         }
     }
 }
@@ -321,25 +329,31 @@ impl Connection for ClientConnection {
 
         let mut sender = self.sender.take().unwrap();
         let stats = self.stats.clone();
-        self.task_pool
-            .spawn(async move {
-                loop {
-                    match channels_tx.next().await {
-                        Some(packet) => {
-                            stats
-                                .write()
-                                .expect("stats lock poisoned")
-                                .add_tx(packet.len());
-                            sender.send(ClientPacket::new((*packet).into())).unwrap();
-                        }
-                        None => {
-                            error!("Channel stream Disconnected");
-                            return; // exit task
-                        }
+
+        let closure = async move {
+            loop {
+                match channels_tx.next().await {
+                    Some(packet) => {
+                        stats
+                            .write()
+                            .expect("stats lock poisoned")
+                            .add_tx(packet.len());
+                        sender.send(ClientPacket::new((*packet).into())).unwrap();
+                    }
+                    None => {
+                        error!("Channel stream Disconnected");
+                        return; // exit task
                     }
                 }
-            })
-            .detach();
+            }
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.channels_task = Some(self.task_pool.spawn(closure));
+        }
+        #[cfg(target_arch = "wasm32")]
+        self.task_pool.spawn(closure);
     }
 
     fn channels(&mut self) -> Option<&mut MessageChannels> {

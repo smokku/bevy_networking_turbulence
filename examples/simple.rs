@@ -53,9 +53,12 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
 }
 
 fn send_packets(mut net: ResMut<NetworkResource>, time: Res<Time>, args: Res<Args>) {
-    if !args.is_server && (time.seconds_since_startup() * 60.) as i64 % 60 == 0 {
-        info!("PING");
-        net.broadcast(Packet::from("PING"));
+    if !args.is_server {
+        // Client context
+        if (time.seconds_since_startup() * 60.) as i64 % 60 == 0 {
+            info!("PING");
+            net.broadcast(Packet::from("PING"));
+        }
     }
 }
 fn handle_packets(
@@ -64,20 +67,23 @@ fn handle_packets(
     mut reader: EventReader<NetworkEvent>,
 ) {
     for event in reader.iter() {
-        if let NetworkEvent::Packet(handle, packet) = event {
-            let message = String::from_utf8_lossy(packet);
-            info!("Got packet on [{}]: {}", handle, message);
-            if message == "PING" {
-                let message = format!("PONG @ {}", time.seconds_since_startup());
-                match net.send(*handle, Packet::from(message)) {
-                    Ok(()) => {
-                        info!("Sent PONG");
-                    }
-                    Err(error) => {
-                        info!("PONG send error: {}", error);
+        match event {
+            NetworkEvent::Packet(handle, packet) => {
+                let message = String::from_utf8_lossy(packet);
+                info!("Got packet on [{}]: {}", handle, message);
+                if message == "PING" {
+                    let message = format!("PONG @ {}", time.seconds_since_startup());
+                    match net.send(*handle, Packet::from(message)) {
+                        Ok(()) => {
+                            info!("Sent PONG");
+                        }
+                        Err(error) => {
+                            info!("PONG send error: {}", error);
+                        }
                     }
                 }
             }
+            event => info!("{event:?} received!"),
         }
     }
 }

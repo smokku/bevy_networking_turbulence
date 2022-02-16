@@ -29,7 +29,7 @@ pub use naia_server_socket::find_my_ip_address;
 use turbulence::{
     buffer::BufferPacketPool,
     message_channels::ChannelMessage,
-    packet::{Packet as PoolPacket, PacketPool, MAX_PACKET_LEN},
+    packet::{Packet as PoolPacket, PacketPool},
     packet_multiplexer::{IncomingTrySendError, MuxPacketPool},
 };
 pub use turbulence::{
@@ -46,6 +46,9 @@ use self::{
 pub use transport::{Connection, ConnectionChannelsBuilder, Packet};
 
 pub type ConnectionHandle = u32;
+
+/// The maximum packet length supported by all platforms
+const MAX_PACKET_LEN: usize = 1472;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 struct SendHeartbeatsStage;

@@ -224,17 +224,16 @@ impl NetworkResource {
         &mut self,
         socket_address: SocketAddr,
         webrtc_listen_address: Option<SocketAddr>,
-        public_webrtc_url: Option<url::Url>,
+        public_webrtc_url: Option<&str>,
     ) {
         use naia_server_socket::ServerAddrs;
 
-        let mut server_socket = {
+        let server_socket = {
             let webrtc_listen_address = webrtc_listen_address.unwrap_or_else(|| {
                 let mut listen_addr = socket_address;
                 listen_addr.set_port(socket_address.port() + 1);
                 listen_addr
             });
-            let public_webrtc_url = public_webrtc_url.unwrap_or(format!("http://{}", webrtc_listen_address).parse().expect("could not parse WebRTC URL"));
 
             let mut socket = ServerSocket::new(SocketConfig {
                 link_condition_config: self.link_conditioner.clone(),
@@ -243,7 +242,7 @@ impl NetworkResource {
             socket.listen(ServerAddrs {
                 session_listen_addr: socket_address,
                 webrtc_listen_addr: webrtc_listen_address,
-                public_webrtc_url,
+                public_webrtc_url: public_webrtc_url.unwrap_or(&format!("http://{}", webrtc_listen_address)).parse().expect("Could not parse public WebRTC URL"),
             });
 
             socket

@@ -4,7 +4,6 @@ use bevy::{prelude::error, tasks::TaskPool};
 use bytes::Bytes;
 use instant::{Duration, Instant};
 use std::{
-    error::Error,
     net::SocketAddr,
     sync::{Arc, RwLock},
 };
@@ -14,7 +13,7 @@ use naia_client_socket::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use naia_server_socket::{
-    Packet as ServerPacket, PacketSender as ServerSender, Socket as ServerSocket,
+    Packet as ServerPacket, PacketSender as ServerSender
 };
 
 use turbulence::{
@@ -23,9 +22,6 @@ use turbulence::{
     packet::PacketPool,
     packet_multiplexer::{IncomingMultiplexedPackets, MuxPacket, MuxPacketPool, PacketMultiplexer},
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use futures_lite::future::block_on;
 
 use futures_lite::StreamExt;
 
@@ -212,7 +208,7 @@ impl Connection for ServerConnection {
         let (channels_rx, mut channels_tx) = multiplexer.start();
         self.channels_rx = Some(channels_rx);
 
-        let mut sender = self.sender.take().unwrap();
+        let sender = self.sender.take().unwrap();
         let client_address = self.client_address;
         let stats = self.stats.clone();
 

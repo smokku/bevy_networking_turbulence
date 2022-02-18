@@ -10,10 +10,12 @@ use std::{
 };
 
 use naia_client_socket::{
-    ClientSocketTrait, MessageSender as ClientSender, Packet as ClientPacket,
+    Packet as ClientPacket, PacketSender as ClientSender, Socket as ClientSocket,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::{MessageSender as ServerSender, Packet as ServerPacket};
+use naia_server_socket::{
+    Packet as ServerPacket, PacketSender as ServerSender, Socket as ServerSocket,
+};
 
 use turbulence::{
     buffer::BufferPacketPool,
@@ -87,7 +89,7 @@ impl PacketStats {
 pub trait Connection: Send + Sync {
     fn remote_address(&self) -> Option<SocketAddr>;
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>>;
+    fn send(&mut self, payload: Packet);
 
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>>;
 
@@ -154,17 +156,16 @@ impl Connection for ServerConnection {
         self.stats.read().expect("stats lock poisoned").clone()
     }
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn send(&mut self, payload: Packet) {
         self.stats
             .write()
             .expect("stats lock poisoned")
             .add_tx(payload.len());
-        block_on(
-            self.sender
-                .as_mut()
-                .unwrap()
-                .send(ServerPacket::new(self.client_address, payload.to_vec())),
-        )
+
+        self.sender
+            .as_mut()
+            .unwrap()
+            .send(ServerPacket::new(self.client_address, payload.to_vec()))
     }
 
     fn last_packet_timings(&self) -> (u128, u128) {
@@ -223,9 +224,7 @@ impl Connection for ServerConnection {
                     .expect("stats lock poisoned")
                     .add_tx(packet.len());
                 sender
-                    .send(ServerPacket::new(client_address, (*packet).into()))
-                    .await
-                    .unwrap();
+                    .send(ServerPacket::new(client_address, (*packet).into()));
             }
         }));
     }
@@ -242,7 +241,7 @@ impl Connection for ServerConnection {
 pub struct ClientConnection {
     task_pool: TaskPool,
 
-    socket: Box<dyn ClientSocketTrait>,
+    socket: ClientSocket,
     sender: Option<ClientSender>,
     stats: Arc<RwLock<PacketStats>>,
 
@@ -253,11 +252,7 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn new(
-        task_pool: TaskPool,
-        socket: Box<dyn ClientSocketTrait>,
-        sender: ClientSender,
-    ) -> Self {
+    pub fn new(task_pool: TaskPool, socket: ClientSocket, sender: ClientSender) -> Self {
         ClientConnection {
             task_pool,
             socket,
@@ -289,7 +284,7 @@ impl Connection for ClientConnection {
         (rx_dur.as_millis(), tx_dur.as_millis())
     }
 
-    fn send(&mut self, payload: Packet) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn send(&mut self, payload: Packet) {
         self.stats
             .write()
             .expect("stats lock poisoned")
@@ -297,11 +292,11 @@ impl Connection for ClientConnection {
         self.sender
             .as_mut()
             .unwrap()
-            .send(ClientPacket::new(payload.to_vec()))
+            .send(ClientPacket::new(payload.to_vec()));
     }
 
     fn receive(&mut self) -> Option<Result<Packet, NetworkError>> {
-        match self.socket.receive() {
+        match self.socket.packet_receiver().receive() {
             Ok(event) => event.map(|packet| {
                 self.stats
                     .write()
@@ -338,7 +333,7 @@ impl Connection for ClientConnection {
                             .write()
                             .expect("stats lock poisoned")
                             .add_tx(packet.len());
-                        sender.send(ClientPacket::new((*packet).into())).unwrap();
+                        sender.send(ClientPacket::new((*packet).into()));
                     }
                     None => {
                         error!("Channel stream Disconnected");

@@ -75,7 +75,7 @@ fn startup(mut net: ResMut<NetworkResource>, args: Res<Args>) {
     }
     if !args.is_server {
         info!("Starting client");
-        net.connect(server_address);
+        net.connect(&format!("http://{}", server_address.to_string()));
     }
 }
 

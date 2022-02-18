@@ -23,9 +23,9 @@ use naia_client_socket::Socket as ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
 use naia_server_socket::Socket as ServerSocket;
 
-pub use naia_socket_shared::LinkConditionerConfig;
 #[cfg(not(target_arch = "wasm32"))]
 pub use naia_socket_shared::find_my_ip_address;
+pub use naia_socket_shared::LinkConditionerConfig;
 
 use turbulence::{
     buffer::BufferPacketPool,
@@ -239,11 +239,11 @@ impl NetworkResource {
                 link_condition_config: self.link_conditioner.clone(),
                 ..Default::default()
             });
-            socket.listen(ServerAddrs {
-                session_listen_addr: socket_address,
-                webrtc_listen_addr: webrtc_listen_address,
-                public_webrtc_url: public_webrtc_url.unwrap_or(&format!("http://{}", webrtc_listen_address)).parse().expect("Could not parse public WebRTC URL"),
-            });
+            socket.listen(ServerAddrs::new(
+                socket_address,
+                webrtc_listen_address,
+                public_webrtc_url.unwrap_or(&format!("http://{}", webrtc_listen_address)),
+            ));
 
             socket
         };
@@ -332,7 +332,7 @@ impl NetworkResource {
                 link_condition_config: self.link_conditioner.clone(),
                 ..Default::default()
             });
-            
+
             socket.connect(server_session_url);
             socket
         };

@@ -8,6 +8,7 @@ use bevy::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crossbeam_channel::{unbounded, SendError as CrossbeamSendError, Sender};
+use naia_socket_shared::SocketConfig;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::RwLock;
 use std::{
@@ -18,13 +19,13 @@ use std::{
     sync::{atomic, Arc, Mutex},
 };
 
-use naia_client_socket::ClientSocket;
+use naia_client_socket::Socket as ClientSocket;
 #[cfg(not(target_arch = "wasm32"))]
-use naia_server_socket::ServerSocket;
+use naia_server_socket::Socket as ServerSocket;
 
-pub use naia_client_socket::LinkConditionerConfig;
 #[cfg(not(target_arch = "wasm32"))]
-pub use naia_server_socket::find_my_ip_address;
+pub use naia_socket_shared::find_my_ip_address;
+pub use naia_socket_shared::LinkConditionerConfig;
 
 use turbulence::{
     buffer::BufferPacketPool,
@@ -223,26 +224,28 @@ impl NetworkResource {
         &mut self,
         socket_address: SocketAddr,
         webrtc_listen_address: Option<SocketAddr>,
-        public_webrtc_address: Option<SocketAddr>,
+        public_webrtc_url: Option<&str>,
     ) {
-        let mut server_socket = {
+        use naia_server_socket::ServerAddrs;
+
+        let server_socket = {
             let webrtc_listen_address = webrtc_listen_address.unwrap_or_else(|| {
                 let mut listen_addr = socket_address;
                 listen_addr.set_port(socket_address.port() + 1);
                 listen_addr
             });
-            let public_webrtc_address = public_webrtc_address.unwrap_or(webrtc_listen_address);
-            let socket = futures_lite::future::block_on(ServerSocket::listen(
+
+            let mut socket = ServerSocket::new(SocketConfig {
+                link_condition_config: self.link_conditioner.clone(),
+                ..Default::default()
+            });
+            socket.listen(ServerAddrs::new(
                 socket_address,
                 webrtc_listen_address,
-                public_webrtc_address,
+                public_webrtc_url.unwrap_or(&format!("http://{}", webrtc_listen_address)),
             ));
 
-            if let Some(ref conditioner) = self.link_conditioner {
-                socket.with_link_conditioner(conditioner)
-            } else {
-                socket
-            }
+            socket
         };
 
         let server_channels = self.server_channels.clone();
@@ -250,9 +253,10 @@ impl NetworkResource {
         let task_pool = self.task_pool.clone();
 
         self.listeners.push(self.task_pool.spawn(async move {
+            let mut receiver = server_socket.packet_receiver();
             loop {
-                match server_socket.receive().await {
-                    Ok(packet) => {
+                match receiver.receive() {
+                    Ok(Some(packet)) => {
                         let address = packet.address();
                         let message = String::from_utf8_lossy(packet.payload());
                         debug!(
@@ -299,7 +303,7 @@ impl NetworkResource {
                                     transport::ServerConnection::new(
                                         task_pool.clone(),
                                         packet_rx,
-                                        server_socket.get_sender(),
+                                        server_socket.packet_sender(),
                                         address,
                                     ),
                                 ));
@@ -313,6 +317,7 @@ impl NetworkResource {
                             }
                         }
                     }
+                    Ok(None) => (),
                     Err(error) => {
                         error!("Server Receive Error: {}", error);
                     }
@@ -321,17 +326,18 @@ impl NetworkResource {
         }));
     }
 
-    pub fn connect(&mut self, socket_address: SocketAddr) {
-        let mut client_socket = {
-            let socket = ClientSocket::connect(socket_address);
+    pub fn connect(&mut self, server_session_url: &str) {
+        let client_socket = {
+            let mut socket = ClientSocket::new(SocketConfig {
+                link_condition_config: self.link_conditioner.clone(),
+                ..Default::default()
+            });
 
-            if let Some(ref conditioner) = self.link_conditioner {
-                socket.with_link_conditioner(conditioner)
-            } else {
-                socket
-            }
+            socket.connect(server_session_url);
+            socket
         };
-        let sender = client_socket.get_sender();
+
+        let sender = client_socket.packet_sender();
 
         self.pending_connections
             .lock()
@@ -367,7 +373,10 @@ impl NetworkResource {
         payload: Packet,
     ) -> Result<(), Box<dyn Error + Sync + Send + 'static>> {
         match self.connections.get_mut(&handle) {
-            Some(connection) => connection.send(payload),
+            Some(connection) => {
+                connection.send(payload);
+                Ok(())
+            }
             None => Err(Box::new(std::io::Error::new(
                 // FIXME: move to enum Error
                 std::io::ErrorKind::NotFound,
@@ -378,7 +387,7 @@ impl NetworkResource {
 
     pub fn broadcast(&mut self, payload: Packet) {
         for (_handle, connection) in self.connections.iter_mut() {
-            connection.send(payload.clone()).unwrap();
+            connection.send(payload.clone());
         }
     }
 

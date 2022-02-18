@@ -29,7 +29,8 @@ use-webrtc = [
 [dependencies]
 bevy = { version = "0.6", default-features = false }
 turbulence = "0.3"
-naia-client-socket = { version = "0.6", features = ["multithread"] }
+naia-client-socket = "0.8"
+naia-socket-shared = "0.8"
 bytes = "1.1"
 futures-lite = "1.12"
 crossbeam-channel = "0.5"
@@ -39,7 +40,7 @@ futures = "0.3"
 futures-timer = "3.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-naia-server-socket = "0.5"
+naia-server-socket = "0.8"
 
 [dev-dependencies]
 clap = "2.34.0"
